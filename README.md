@@ -1,10 +1,11 @@
 # Music Player J
-A music player I'm making in rust as a personal project  
+A music player I'm making in rust as a personal project. Currently only works well/at all with aac encoding.  
 
 
 # Goals
 Make settings window nicer, maybe use Area instead of Window  
 *Maybe* make the search bar cursor blink, and work with arrow keys(big maybe)  
+Improve file type handling  
 
 
 
