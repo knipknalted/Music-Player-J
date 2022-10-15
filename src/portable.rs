@@ -6,6 +6,7 @@ use crate ::controls::{show_current_song,shuffle_button,prev,play_pause,next,loo
 const SPACING: f32 = 10.0;
 const BUTTON_SIDE: f32 = 40.0;
 
+// Lays out panels for the miniature version of the app
 pub fn portable_layout(ctx: &egui::Context, app: &mut SpogApp) {
     egui::CentralPanel::default().show(ctx, |ui| {
 

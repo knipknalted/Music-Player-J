@@ -3,7 +3,7 @@ use std::{path::Path};
 use egui::{pos2};
 use epaint::{Color32, vec2, FontId};
 
-use crate::spogify::{SpogApp, QueueState, get_tracks, get_song, singleline_galley, Song};
+use crate::spogify::{SpogApp, QueueMode, get_names_in_dir, singleline_galley, Song, init_song, read_m4a};
 
 pub const WHITE: egui::Color32 = egui::Color32::WHITE;
 pub const BLACK: egui::Color32 = egui::Color32::BLACK;
@@ -14,486 +14,89 @@ pub const _FERN: Color32 = Color32::from_rgb(104, 185, 115);
 pub const _CUSTOM_BLUE: Color32 = Color32::from_rgb(132,150,255);
 pub const SPACING: f32 = 35.0;
 pub const BUTTON_SIDE: f32 = 40.0;
-
-// pub fn shuffle_button(ui: &mut egui::Ui, app: &mut SpogApp, available_rect: egui::Rect) -> egui::Response {
-//     let rect_center = available_rect.center();
-//     let color = app.color_data.widget_color;
-//     let detail_color = app.color_data.widget_detail_color;
-    
-//     let h_offset = vec2(2.5 * SPACING, 0.0) + vec2(2.0 * ui.spacing().interact_size.y, 0.0);
-//     let rect = egui::Rect::from_min_max(
-//         rect_center - h_offset - vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y),
-//         rect_center - h_offset + vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y));
-
-//     let mut response = ui.allocate_rect(rect, egui::Sense::click());
-    
-//     // noting if it's been clicked
-//     if response.clicked() {
-//         if matches!(app.mode, QueueState::Shuffle) {
-//             app.mode = QueueState::Next;
-//         } else {
-//             app.mode = QueueState::Shuffle;
-//         }
-//         response.mark_changed();
-//     }
-    
-//     //response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
-//     // Paint it on the screen
-//     if ui.is_rect_visible(rect) {
-//         let mut visuals = ui.style().interact_selectable(&response, true);
-//         visuals.fg_stroke.width = 1.5;
-
-//         let rect = rect.expand(visuals.expansion);
-//         let radius = 0.5 * rect.height();
-//         let center = egui::pos2(rect.center().x, rect.center().y);
-
-//         ui.painter().rect(rect, radius, color, visuals.fg_stroke);
-//         ui.painter().text(
-//             center,
-//             egui::Align2::CENTER_CENTER, "🔀", 
-//             FontId::proportional(rect.height()-4.0), 
-//             detail_color);
-//     }
-//     response
-// }
-
-// pub fn prev(ui: &mut egui::Ui, app: &mut SpogApp, available_rect: egui::Rect) -> egui::Response {
-//     let rect_center = available_rect.center();
-//     // let color = app.color_data.widget_color;
-//     let detail_color = app.color_data.widget_detail_color;
-    
-//     let h_offset = vec2(SPACING, 0.0) + vec2(2.0 * ui.spacing().interact_size.y, 0.0);
-//     let rect = egui::Rect::from_min_max(
-//         rect_center - h_offset - vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y),
-//         rect_center - h_offset + vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y));
-
-//     let response = ui.allocate_rect(rect, egui::Sense::click());
-
-//     // noting if it's been clicked
-//     if response.clicked() {
-//         app.go_back();
-//         // response.mark_changed();
-//     }
-//     //response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
-
-//     //paint it on the screen
-//     if ui.is_rect_visible(rect) {
-
-//         let mut visuals = ui.style().interact_selectable(&response, true);
-//         visuals.fg_stroke.width = 1.5;
-
-//         let rect = rect.expand(visuals.expansion);
-//         let radius = 0.5 * rect.height();
-//         let center = egui::pos2(rect.center().x, rect.center().y);
-
-//         ui.painter().rect(rect, radius, app.color_data.widget_color, visuals.fg_stroke);
-//         ui.painter().text(
-//             center, 
-//             egui::Align2::CENTER_CENTER, "⏮", 
-//             FontId::proportional(rect.height()-4.0), 
-//             detail_color);
-//     }
-//     response
-// }
-
-// pub fn play_pause(ui: &mut egui::Ui, app: &mut SpogApp, available_rect: egui::Rect) -> egui::Response {
-//     let rect_center = available_rect.center();
-//     let rect = egui::Rect::from_min_max(
-//         rect_center - 2.0 * pos2(ui.spacing().interact_size.y, ui.spacing().interact_size.y).to_vec2(),
-//         rect_center + 2.0 * pos2(ui.spacing().interact_size.y, ui.spacing().interact_size.y).to_vec2());
-//     // setting size
-//     //println!("{} to {}, {} to {}, size {}",rect.left(), rect.right(), rect.top(), rect.bottom(), ui.spacing().interact_size.y);
-//     //let desired_size = ui.spacing().interact_size.y * egui::vec2(4.0,4.0);
-//     //println!("{}", rect.height());
-
-//     // making space for it
-//     let mut response = ui.allocate_rect(rect, egui::Sense::click());
-
-//     // noting if it's been clicked
-//     if response.clicked() {
-//         app.on = !app.on;
-//         response.mark_changed();
-//         if app.on {
-//             app.sink.play();
-//         } else { 
-//             app.sink.pause();
-//         }
-//     }
-
-//     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, app.on, ""));
-
-//     //paint it on the screen
-//     if ui.is_rect_visible(rect) {
-
-//         let mut visuals = ui.style().interact_selectable(&response, app.on);
-//         visuals.fg_stroke.width = 1.5;
-
-//         let color = app.color_data.widget_color;
-//         let detail_color = app.color_data.widget_detail_color;
-
-//         let rect = rect.expand(visuals.expansion);
-//         let radius = 0.5 * rect.height();
-//         let center = egui::pos2(rect.center().x, rect.center().y);
-
-//         ui.painter().rect(rect, radius, color, visuals.fg_stroke);
-
-//         let pause_rects = vec![
-//             epaint::Rect::from_two_pos(pos2(center.x-0.2*rect.width(),center.y-0.2*rect.height()), 
-//                 pos2(center.x-0.1*rect.width(),center.y+0.2*rect.height())),
-//             egui::Rect::from_two_pos(pos2(center.x+0.2*rect.width(),center.y-0.2*rect.height()), 
-//                 pos2(center.x+0.1*rect.width(),center.y+0.2*rect.height()))
-//             ];
-//         let _pause: Vec<epaint::Shape> = vec![
-//             egui::Shape::Rect(epaint::RectShape {
-//                 rect: pause_rects[0], 
-//                 rounding: epaint::Rounding::none(), 
-//                 fill: epaint::Color32::WHITE, 
-//                 stroke: visuals.fg_stroke}),
-//             egui::Shape::Rect(epaint::RectShape {
-//                 rect: pause_rects[1], 
-//                 rounding: epaint::Rounding::none(), 
-//                 fill: epaint::Color32::WHITE, 
-//                 stroke: visuals.fg_stroke})
-//                 ];
-
-//         let _play = epaint::PathShape {
-//             points: vec![pos2(center.x-rect.width()*0.175, center.y-rect.height()*0.233333),
-//                         pos2(center.x-rect.width()*0.175, center.y+rect.height()*0.233333),
-//                         pos2(center.x+rect.width()*0.29, center.y)],
-//             closed: true,
-//             fill: epaint::Color32::WHITE,
-//             stroke: visuals.fg_stroke,
-
-//         };
-        
-//         if app.on {
-//             //ui.painter().extend(pause);
-//             ui.painter().text(
-//                 center, 
-//                 egui::Align2::CENTER_CENTER, "⏸", 
-//                 FontId::proportional(rect.height()-6.0), 
-//                 detail_color);
-//         } else {
-//             //ui.painter().add(play); ▶
-//             ui.painter().text(
-//                 center, 
-//                 egui::Align2::CENTER_CENTER, "⏵", 
-//                 FontId::proportional(rect.height()-4.0), 
-//                 detail_color);
-//         }
-//     }
-//     response
-// }
-
-// pub fn next(ui: &mut egui::Ui, app: &mut SpogApp, available_rect: egui::Rect) -> egui::Response {
-//     let rect_center = available_rect.center();
-//     // let color = app.color_data.widget_color;
-//     let detail_color = app.color_data.widget_detail_color;
-    
-//     let h_offset = vec2(SPACING, 0.0) + vec2(2.0 * ui.spacing().interact_size.y, 0.0);
-//     let rect = egui::Rect::from_min_max(
-//         rect_center + h_offset - vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y),
-//         rect_center + h_offset + vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y));
-
-//     let response = ui.allocate_rect(rect, egui::Sense::click());
-
-//     // noting if it's been clicked
-//     if response.clicked() {
-//         app.skip_song();
-//         // response.mark_changed();
-//     }
-
-//     //response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
-
-//     //paint it on the screen
-//     if ui.is_rect_visible(rect) {
-
-//         let mut visuals = ui.style().interact_selectable(&response, true);
-//         visuals.fg_stroke.width = 1.5;
-
-//         let rect = rect.expand(visuals.expansion);
-//         let radius = 0.5 * rect.height();
-//         let center = egui::pos2(rect.center().x, rect.center().y);
-
-//         ui.painter().rect(rect, radius, app.color_data.widget_color, visuals.fg_stroke);
-//         ui.painter().text(
-//             center, 
-//             egui::Align2::CENTER_CENTER, "⏭", 
-//             FontId::proportional(rect.height()-4.0), 
-//             detail_color);
-//     }
-//     response
-// }
-
-// pub fn loop_button(ui: &mut egui::Ui, app: &mut SpogApp, available_rect: egui::Rect) -> egui::Response {
-//     let rect_center = available_rect.center();
-//     let color = app.color_data.widget_color;
-//     let detail_color = app.color_data.widget_detail_color;
-    
-//     let h_offset = vec2(2.5 * SPACING, 0.0) + vec2(2.0 * ui.spacing().interact_size.y, 0.0);
-//     let rect = egui::Rect::from_min_max(
-//         rect_center + h_offset - vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y),
-//         rect_center + h_offset + vec2(ui.spacing().interact_size.y, ui.spacing().interact_size.y));
-
-//     // println!("space: {}", (available_rect.width()-rect.right_center().x));
-
-//     let mut response = ui.allocate_rect(rect, egui::Sense::click());
-
-//     // noting if it's been clicked
-//     if response.clicked() {
-//         if matches!(app.mode, QueueState::Loop) {
-//             app.mode = QueueState::Next;
-//         } else {
-//             app.mode = QueueState::Loop;
-//         }
-//         response.mark_changed();
-//     }
-
-//     //response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
-
-//     //paint it on the screen
-//     if ui.is_rect_visible(rect) {
-
-//         let mut visuals = ui.style().interact_selectable(&response, true);
-//         visuals.fg_stroke.width = 1.5;
-
-//         let rect = rect.expand(visuals.expansion);
-//         let radius = 0.5 * rect.height();
-//         let center = egui::pos2(rect.center().x, rect.center().y);
-
-//         ui.painter().rect(rect, radius, color, visuals.fg_stroke);
-//         ui.painter().text(
-//             center, 
-//             egui::Align2::CENTER_CENTER, "🔁", 
-//             FontId::proportional(rect.height()-4.0), 
-//             detail_color);
-//     }
-//     response
-// }
-
-
-// pub fn button_decals(mode: &mut QueueState, ui: &mut egui::Ui, available_rect: egui::Rect) {
-//     //let rect_center = available_rect.center();
-    
-//     let h_offset = vec2(2.5 * SPACING, 0.0) + vec2(2.0 * ui.spacing().interact_size.y, 0.0);
-//     let v_offset = vec2(0.0, 30.0);
-
-//     let shuff_center = (available_rect.center().to_vec2()-h_offset+v_offset).to_pos2();
-//     let loop_center = (available_rect.center().to_vec2()+h_offset+v_offset).to_pos2();
-    
-//     match mode {
-//         QueueState::Shuffle => ui.painter().circle_filled(shuff_center, 5.0, Color32::WHITE),
-//         QueueState::Loop => ui.painter().circle_filled(loop_center, 5.0, Color32::WHITE),
-//         _ => (),
-//     }
-// }
-
-// pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, min: f32, max: f32) {
-//     let available_rect = ui.max_rect();
-
-//     // Pulled from the Loop Button to figure out where we need to stop the slider if there's not enough space for full size
-//     let h_offset = vec2(2.5 * SPACING, 0.0) + vec2(2.0 * ui.spacing().interact_size.y, 0.0);
-//     let loop_x = available_rect.center().x + h_offset.x + ui.spacing().interact_size.y;
-
-//     let (bot_right, top_left) = if available_rect.width()<979.0 {
-//         (
-//             available_rect.right_center() - vec2(20.0, -10.0),
-//             available_rect.right_center() - vec2(20.0, -10.0) - vec2(available_rect.width()-loop_x, 20.0) + vec2(30.0, 0.0)
-//         )
-//     } else if available_rect.width()<1199.0 {
-//         (
-//             available_rect.right_center() - vec2(20.0+55.0*((available_rect.width()-979.0)/(1199.0-979.0)), -10.0),
-//             available_rect.right_center() - vec2(20.0+55.0*((available_rect.width()-979.0)/(1199.0-979.0)), -10.0) - vec2(300.0, 20.0)
-//         )
-//     } else {
-//         (
-//             available_rect.right_center() - vec2(75.0, -10.0),
-//             available_rect.right_center() - vec2(75.0, -10.0)- vec2(300.0, 20.0)
-//         )
-//     };
-
-//     let bar = egui::Rect::from_two_pos(top_left, bot_right);
-//     let offset = top_left.x;
-//     let v_offset = bar.center().y;
-//     let slide_len = bar.width();
-
-//     let center = pos2(val_to_pos(app.volume, offset, min, max, slide_len) as f32, v_offset);
-//     let knob = egui::Rect::from_center_size(center, vec2(24.0,24.0));
-
-//     let knob_response = ui.allocate_rect(knob, egui::Sense::click_and_drag());
-//     let bar_response = ui.allocate_rect(bar.shrink2(vec2(12.0, 0.0)), egui::Sense {click: true, drag: true, focusable: true});
-//     if bar_response.clicked() {
-//         let pos = bar_response.interact_pointer_pos().unwrap().x;
-//         app.volume = pos_to_val(pos, offset, min, max, slide_len);
-//         app.sink.set_volume(app.volume);
-//     }
-
-//     if bar_response.hovered() {
-//         let delta = ui.ctx().input().scroll_delta.y;
-//         let new_pos = val_to_pos(app.volume, offset, min, max, slide_len) + delta*0.2;
-//         app.volume = pos_to_val(new_pos, offset, min, max, slide_len).clamp(min, max);
-//         if delta != 0.0 {
-//             app.sink.set_volume(app.volume);
-//         } 
-//     }
-
-//     if knob_response.dragged() {
-//         let delta = knob_response.drag_delta().x;
-//         let new_pos = val_to_pos(app.volume, offset, min, max, slide_len) + delta;
-//         app.volume = pos_to_val(new_pos, offset, min, max, slide_len).clamp(min, max);
-//         app.sink.set_volume(app.volume);
-//     }
-
-//     ui.painter().rect(bar, egui::Rounding::same(10.0), SLIDER_BACKGROUND, egui::Stroke {width: 0.0, color: BLACK});
-//     if available_rect.width()>1300.0 {
-//         let text = if !app.settings.muted {
-//             String::from("🔊")
-//         } else if !app.settings.muted && app.volume<0.075 {
-//             String::from("🔉")
-//         } else {
-//             String::from("🔈")
-//         };
-//         let speaker_rect = ui.painter().text(
-//             bar.left_center()-vec2(20.0, 0.0), 
-//             egui::Align2::CENTER_CENTER, 
-//             text, FontId::proportional(32.0), 
-//             LIGHT_GREY);
-//         let speaker_response = ui.allocate_rect(speaker_rect, egui::Sense::click());
-//         if speaker_response.hovered() {
-//             let mask = egui::Color32::from_white_alpha(11);
-//             ui.painter().rect_filled(speaker_rect, egui::Rounding::none(), mask);
-//         }
-//         if speaker_response.clicked() {
-//             app.settings.muted = !app.settings.muted;
-//             if app.settings.muted {
-//                 app.sink.set_volume(0.0)
-//             } else {
-//                 app.sink.set_volume(app.volume)
-//             }
-//         }
-//     }
-
-//     if bar_response.hovered() | knob_response.is_pointer_button_down_on() {
-//         ui.painter().circle(center, 12.0, app.color_data.widget_color, egui::Stroke {width: 3.0, color: WHITE});
-//     } else {
-//         ui.painter().circle_filled(center, 12.0, app.color_data.widget_color);
-//     }
-// }
-
-// fn pos_to_val(pos: f32, offset: f32, min: f32, max: f32, slide_len: f32) -> f32 {
-//     min + ((pos-(offset+12.0))/(slide_len-24.0))*(max - min)
-// }
-
-// fn val_to_pos(val: f32, offset: f32, min: f32, max: f32, slide_len: f32) -> f32 {
-//     (offset+12.0) + ((slide_len-24.0)*(val-min)/(max-min))
-// }
-
-// pub fn width_from_str(text: &String, fonts: &egui::text::Fonts) -> f32 {
-//     let mut width = 0.0;
-//     for char in text.as_str().chars() {
-//         width += egui::text::Fonts::glyph_width(
-//             fonts,
-//             &egui::FontId::proportional(28.0), 
-//             char
-//         );
-//     }
-//     width
-// }
-
-// pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp) {
-//     let offset = ui.max_rect().left_center();
-//     let width = ui.max_rect().width()*0.5 - (185.0);
-//     let top_left = offset + vec2(20.0, -30.0);
-//     let bot_right = top_left + vec2(width, 60.0);
-//     let rect = egui::Rect::from_two_pos(top_left, bot_right);
-//     ui.painter().rect_filled(rect, egui::Rounding::same(3.0), SLIDER_BACKGROUND);
-//     if app.track_list.len()>0 {
-//         let song: &Song = &app.track_list[app.current_index];
-//         let complete_song = if !song.title.is_empty() && !song.artist.is_empty() && !song.album.is_empty() {
-//             true
-//         } else {false};
-
-//         use egui::Align;
-
-//         let top_pos = rect.left_center() + vec2(0.0, -14.0);
-//         if complete_song {
-//             let bot_pos = rect.left_center() + vec2(0.0, 16.0);
-//             let (title_gal, title_height) = singleline_galley(
-//                 ui, width, &song.title.clone(), LIGHT_GREY, 28.0, Align::Center
-//             );
-//             let (artist_gal, artist_height) = singleline_galley(
-//                 ui, width, &song.artist.clone(), LIGHT_GREY, 20.0, Align::Center
-//             );
-//             ui.painter().galley(top_pos - vec2(-0.5*width, 0.5*title_height), title_gal);
-//             ui.painter().galley(bot_pos - vec2(-0.5*width, 0.5*artist_height), artist_gal);
-//         } else {
-//             let (path_gal, path_height) = singleline_galley(
-//                 ui, width, &song.path.clone(), LIGHT_GREY, 28.0, Align::Center
-//             );
-//             ui.painter().galley(top_pos - vec2(-0.5*width, 0.5*path_height), path_gal);
-//         }
-//     }
-// }
-
-// pub fn settings_button(ui: &mut egui::Ui, app: &mut SpogApp) {
-//     let available_rect = ui.max_rect();
-//     let center = available_rect.right_center() - vec2(30.0, 0.0);
-//     let rect = egui::Rect::from_center_size(center, vec2(40.0,40.0));
-//     let cog_response = ui.allocate_rect(rect, egui::Sense::click());
-
-//     if cog_response.clicked() {
-//         println!("woohoo you clicked the button!");
-//         app.window_bools.settings = !app.window_bools.settings;
-//     }
-
-//     if cog_response.hovered() {
-//         ui.painter().circle(rect.center(), 20.0, SLIDER_BACKGROUND, egui::Stroke{width: 2.0, color:WHITE});
-//         ui.painter().text(
-//             center, 
-//             egui::Align2::CENTER_CENTER, "⚙", 
-//             FontId::proportional(30.0), 
-//             epaint::Color32::WHITE);
-//     } else {
-//         ui.painter().circle(rect.center(), 20.0, SLIDER_BACKGROUND, egui::Stroke{width: 1.0, color:LIGHT_GREY});
-//         ui.painter().text(
-//             center, 
-//             egui::Align2::CENTER_CENTER, "⚙", 
-//             FontId::proportional(30.0), 
-//             LIGHT_GREY);
-//     } 
-//     // let button = egui::Button::new("⚙");     
-// }
-
 pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     egui::Window::new("Settings").open(&mut app.window_bools.settings).show(ctx, |ui| {
-        ui.label(&app.direct_path);
+        let directory_error = ui.make_persistent_id("directory_error");
+        let currently_reading = ui.make_persistent_id("currently_reading");
+        // Label current directory and offer to save it isn't already saved
+        ui.horizontal(|ui| {
+            ui.label(&app.dir_path);
+            if !app.settings.saved_dirs.contains(&app.dir_path) {
+                if ui.button("Save Directory?").clicked() {
+                    app.settings.saved_dirs.push(app.dir_path.clone());
+                }
+            }
+        });
+        if ui.button("Print first 50 songs").clicked() {
+            let num = if app.track_list.len() < 50 {
+                app.track_list.len()
+            } else {
+                50
+            };
+            for i in 0..num {
+                println!("{} [Title: {}, Artist: {}, Album: {}]", i, app.track_list[i].title, app.track_list[i].artist, app.track_list[i].album);
+            }
+        }
+        // Change directory
         ui.horizontal(|ui| {
             ui.label("New Directory:");
             ui.text_edit_singleline(&mut app.settings.direct_buf);
             let response = ui.button("Confirm new directory path?");
-            let popup_id = ui.make_persistent_id("directory_error");
             if response.clicked() {
-                if Path::exists(Path::new(&app.settings.direct_buf)) {
-                    app.direct_path = app.settings.direct_buf.clone();
+                if Path::exists(Path::new(&app.settings.direct_buf)) && !app.song_loading.active {
+                    app.dir_path = app.settings.direct_buf.clone();
                     app.current_index = 0;
-                    let track_paths = get_tracks(&app.direct_path);
-                    let mut songs = vec![];
-                    for i in 0..track_paths.len() {
-                        if let Some(t) = get_song(app.direct_path.as_str(), track_paths[i].as_str(), i) {
-                            songs.push(t)
+                    let new_names = get_names_in_dir(&app.dir_path);
+                    let new_songs = {
+                        let mut new_songs = vec![];
+                        for i in 0..new_names.len() {
+                            new_songs.push(init_song(&app.dir_path, &new_names[i], i))
                         }
-                    }
-                    app.track_list = songs;
+                        new_songs
+                    };
+                    app.track_list = new_songs;
+                    app.song_loading.request = true;
+
+                    /*
+
+                    // *** Can't use fn bc closure requires exlusive borrow
+                    // Very clumsy, want to use a fn that does not require a mut borrow
+                    app.song_loading.active = true;
+                    app.song_loading.position = 0;
+                    let tx = app.song_loading.tx.clone();
+                    
+                    // Threaded song metadata reading
+                    // First we need a copy of every file path we already have
+                    let paths = {
+                        let mut paths = vec![];
+                        app.track_list.iter().for_each(|x| {
+                            paths.push((*x.path).clone());
+                        });
+                        paths
+                    };
+                    std::thread::spawn(move || {
+                        paths.iter().for_each(|x| {
+                            // println!("Thread: Reading {}", x);
+                            tx.send(read_file_data(x)).unwrap();
+                        });
+                    });
+                    
+                    */
+
                     //app.boolean = false;
-                } else {
-                    ui.memory().open_popup(popup_id);
+                } else if !app.song_loading.active {
+                    ui.memory().open_popup(directory_error);
                 }
             }
-            egui::popup_below_widget(ui, popup_id, &response, |ui| {
+            egui::popup_below_widget(ui, directory_error, &response, |ui| {
                 ui.label("Couldn't find that directory!");
+            });
+            egui::popup_below_widget(ui, directory_error, &response, |ui| {
+                ui.label("Please wait until the current directory is finished reading.");
             });
         });
         
+        // Enable/disable fancy rgb color shift
         ui.horizontal(|ui| {
             ui.label("Color Shift");
             let text = match app.settings.color_shift {
@@ -511,10 +114,74 @@ pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, _frame: &mut efra
             }
         });
 
+        // Switch app mode
         if ui.button("Switch App Mode").clicked() {
             app.settings.mini_mode = !app.settings.mini_mode;
-            // frame.set_visible(!app.settings.mini_mode);
         }
+        let mut dir_buf: Option<String> = None;
+        ui.collapsing("Saved Directories", |ui| {
+            for i in 0..app.settings.saved_dirs.len() {
+                ui.horizontal(|ui| {
+                    if ui.button(&app.settings.saved_dirs[i]).clicked() && !app.song_loading.active {
+                        dir_buf = Some(app.settings.saved_dirs[i].clone());
+                        if Path::exists(Path::new(&app.settings.saved_dirs[i])) {
+                            app.dir_path = app.settings.saved_dirs[i].clone();
+                            app.current_index = 0;
+                            // let new_names = get_names_in_dir(&app.dir_path);
+                            // let new_songs = {
+                            //     let mut new_songs = vec![];
+                            //     for i in 0..new_names.len() {
+                            //         new_songs.push(init_song(&app.dir_path, &new_names[i], i))
+                            //     }
+                            //     new_songs
+                            // };
+                            // app.track_list = new_songs;
+                            app.song_loading.request = true;
+
+                            // *** Can't use fn bc closure requires exlusive borrow
+                            // Very clumsy, want to use a fn that does not require a mut borrow
+
+                            /*
+
+                            app.song_loading.active = true;
+                            app.song_loading.position = 0;
+                            let tx = app.song_loading.tx.clone();
+                            
+                            // Threaded song metadata reading
+                            // First we need a copy of every file path we already have
+                            let paths = {
+                                let mut paths = vec![];
+                                app.track_list.iter().for_each(|x| {
+                                    paths.push((*x.path).clone());
+                                });
+                                paths
+                            };
+                            std::thread::spawn(move || {
+                                paths.iter().for_each(|x| {
+                                    // println!("Thread: Reading {}", x);
+                                    tx.send(read_file_data(x)).unwrap();
+                                });
+                            });
+
+                            */
+                            
+                            // for i in 0..new_names.len() {
+                            //     if let Some(t) = get_song(app.direct_path.as_str(), new_names[i].as_str(), i) {
+                            //         songs.push(t)
+                            //     }
+                            // }
+                            // app.track_list = songs;
+                            //app.boolean = false;
+                        } else {
+                            ui.memory().open_popup(directory_error);
+                        }
+                    }
+                    if ui.button("Remove directory").clicked() {
+                        app.settings.saved_dirs.remove(i);
+                    }
+                });
+            }
+        });
     });
 }
 
@@ -528,10 +195,10 @@ pub fn shuffle_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2)
     
     // noting if it's been clicked
     if response.clicked() {
-        if matches!(app.mode, QueueState::Shuffle) {
-            app.mode = QueueState::Next;
+        if matches!(app.mode, QueueMode::Shuffle) {
+            app.mode = QueueMode::Next;
         } else {
-            app.mode = QueueState::Shuffle;
+            app.mode = QueueMode::Shuffle;
         }
         response.mark_changed();
     }
@@ -565,7 +232,7 @@ pub fn prev(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) -> egui::
     let response = ui.allocate_rect(rect, egui::Sense::click());
 
     // noting if it's been clicked
-    if response.clicked() {
+    if response.clicked() && !app.track_list.is_empty() {
         app.go_back();
         // response.mark_changed();
     }
@@ -660,7 +327,7 @@ pub fn next(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) -> egui::
     let response = ui.allocate_rect(rect, egui::Sense::click());
 
     // noting if it's been clicked
-    if response.clicked() {
+    if response.clicked() && !app.track_list.is_empty() {
         app.skip_song();
         // response.mark_changed();
     }
@@ -699,10 +366,10 @@ pub fn loop_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) ->
 
     // noting if it's been clicked
     if response.clicked() {
-        if matches!(app.mode, QueueState::Loop) {
-            app.mode = QueueState::Next;
+        if matches!(app.mode, QueueMode::Loop) {
+            app.mode = QueueMode::Next;
         } else {
-            app.mode = QueueState::Loop;
+            app.mode = QueueMode::Loop;
         }
         response.mark_changed();
     }
@@ -729,18 +396,18 @@ pub fn loop_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) ->
     response
 }
 
-pub fn button_decals(mode: &mut QueueState, ui: &mut egui::Ui, shuffle_nw: egui::Pos2, loop_nw: egui::Pos2) {
+pub fn button_decals(mode: &mut QueueMode, ui: &mut egui::Ui, shuffle_nw: egui::Pos2, loop_nw: egui::Pos2) {
     let center = match mode {
-        QueueState::Shuffle => {
+        QueueMode::Shuffle => {
             shuffle_nw + vec2(0.5*BUTTON_SIDE, BUTTON_SIDE+10.0)        
         },
-        QueueState::Loop => {
+        QueueMode::Loop => {
             loop_nw + vec2(0.5*BUTTON_SIDE, BUTTON_SIDE+10.0)
             
         },
         _ => egui::Pos2::ZERO,
     };
-    if let QueueState::Shuffle | QueueState::Loop = mode {
+    if let QueueMode::Shuffle | QueueMode::Loop = mode {
         ui.painter().circle_filled(center, 5.0, Color32::WHITE);
     }
 }
@@ -775,7 +442,7 @@ pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min
         let pos = bar_response.interact_pointer_pos().unwrap().x;
         app.volume = pos_to_val(pos, bar.left(), min, max, bar.width());
         app.sink.set_volume(app.volume);
-        println!("{}", exp_p_to_v(pos, bar.left(), bar.width()));
+        // println!("{}", exp_p_to_v(pos, bar.left(), bar.width()));
     }
 
     if bar_response.hovered() {
@@ -841,13 +508,13 @@ fn val_to_pos(val: f32, offset: f32, min: f32, max: f32, slide_len: f32) -> f32 
 }
 
 // UNFINISHED exponential volume_sliders
-fn exp_p_to_v(pos: f32, offset: f32, slide_len: f32) -> f32 {
+fn _exp_p_to_v(pos: f32, offset: f32, slide_len: f32) -> f32 {
     let x = 100.0*(pos-offset)/slide_len;
     println!("{}",((pos.powi(2)-offset)/slide_len));
     (1.9_f32.powf((pos.powi(2)-offset)/slide_len))-1.9_f32.powf(offset/slide_len)
 }
 
-fn exp_v_to_p() -> f32 {
+fn _exp_v_to_p() -> f32 {
     0.0
 }
 
@@ -864,7 +531,7 @@ pub fn width_from_str(text: &String, fonts: &egui::text::Fonts) -> f32 {
     width
 }
 
-pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect) {
+pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect) -> egui::Response {
     // let offset = ui.max_rect().left_center();
     let width = rect.width();
     
@@ -890,10 +557,10 @@ pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect)
                 ui.painter().galley(left_pos - vec2(-50.0, 0.5*title_height), title_gal);
                 ui.painter().galley(right_pos - vec2(0.0, 0.5*artist_height), artist_gal);
             } else {
-                let (path_gal, path_height) = singleline_galley(
-                    ui, width, &song.path.clone(), LIGHT_GREY, 28.0, Align::Center
+                let (name_gal, name_height) = singleline_galley(
+                    ui, width, &song.file_name.clone(), LIGHT_GREY, 28.0, Align::Center
                 );
-                ui.painter().galley(left_pos - vec2(-0.5*width, 0.5*path_height), path_gal);
+                ui.painter().galley(left_pos - vec2(-0.5*width, 0.5*name_height), name_gal);
             }
         } else {
             let top_pos = rect.left_center() + vec2(0.0, -14.0);
@@ -908,13 +575,14 @@ pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect)
                 ui.painter().galley(top_pos - vec2(-0.5*width, 0.5*title_height), title_gal);
                 ui.painter().galley(bot_pos - vec2(-0.5*width, 0.5*artist_height), artist_gal);
             } else {
-                let (path_gal, path_height) = singleline_galley(
-                    ui, width, &song.path.clone(), LIGHT_GREY, 28.0, Align::Center
+                let (name_gal, name_height) = singleline_galley(
+                    ui, width, &song.file_name.clone(), LIGHT_GREY, 28.0, Align::Center
                 );
-                ui.painter().galley(top_pos - vec2(-0.5*width, 0.5*path_height), path_gal);
+                ui.painter().galley(top_pos - vec2(-0.5*width, 0.5*name_height), name_gal);
             }
         }
     }
+    ui.allocate_rect(rect, egui::Sense::click())
 }
 
 pub fn settings_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) {
@@ -960,14 +628,14 @@ pub fn mode_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) {
         ui.painter().circle(rect.center(), 20.0, SLIDER_BACKGROUND, egui::Stroke{width: 2.0, color:WHITE});
         ui.painter().text(
             rect.center(), 
-            egui::Align2::CENTER_CENTER, "⇲", 
+            egui::Align2::CENTER_CENTER, "↑", 
             FontId::proportional(30.0), 
             epaint::Color32::WHITE);
     } else {
         ui.painter().circle(rect.center(), 20.0, SLIDER_BACKGROUND, egui::Stroke{width: 1.0, color:LIGHT_GREY});
         ui.painter().text(
             rect.center(), 
-            egui::Align2::CENTER_CENTER, "⇲", 
+            egui::Align2::CENTER_CENTER, "↑", 
             FontId::proportional(30.0), 
             LIGHT_GREY);
     }
@@ -980,6 +648,7 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
 
     let bar_response = ui.allocate_rect(bar, egui::Sense {click: true, drag: true, focusable: true});
     
+    // Accept keyboard input if search bar clicked on
     if bar_response.clicked() {
         app.filter_data.active = true;
         // test_width(ui);
@@ -991,6 +660,12 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
                 app.filter_data.active = false;
             }
         }
+    }
+    // Clear search bar on right click
+    if bar_response.secondary_clicked() {
+        app.filter_data.field = "".to_string();
+        app.filter_data.text_width = 0.0;
+        app.filter_data.active = false;
     }
 
     let shift = if app.filter_data.text_width < 335.0 {
@@ -1010,6 +685,7 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
     };
 
     if app.filter_data.active {
+        // Handle keyboard input
         for event in &ui.ctx().input().events {
             if let egui::Event::Text(t) = event {
                 let width = width_from_str(t, &app.filter_data.fonts);
@@ -1022,19 +698,27 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
                     app.filter_data.text_width -= width_from_str(&char, &app.filter_data.fonts);
                 }
             }
-            // println!("{}", app.filter_data.text_width);
         }
 
+        // Painting the bar
         ui.painter().rect_filled(bar, egui::Rounding::same(20.0), WHITE);
+        // Painting a decorative magnifying glass
         ui.painter().text(
             magnifying_pos, 
             egui::Align2::LEFT_CENTER, 
             "🔍", egui::FontId::proportional(30.0), 
             BLACK
         );
-        ui.painter().add(line);
+        // Make caret blink
+        ui.ctx().request_repaint();
+        if app.play_dur.elapsed().unwrap().as_secs() % 2 == 0 {
+            ui.painter().add(line);
+        }
+        // ui.painter().add(line);
     } else {
+        // Painting the bar
         ui.painter().rect_filled(bar, egui::Rounding::same(20.0), SLIDER_BACKGROUND);
+        // Painting a decorative magnifying glass
         ui.painter().text(
             magnifying_pos, 
             egui::Align2::LEFT_CENTER, 
@@ -1043,8 +727,11 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
         );
     }
 
+    // *** Below is my very clumsy and imperfect method of rendering the text from scratch
+    // To determine which part of the text should be shown, if the text is longer than the bar
     let viewport = egui::Rect::from_two_pos(bar.left_top()+vec2(45.0, 0.0), bar.right_bottom()-vec2(20.0,0.0));
 
+    // Hint text if empty search bar
     if app.filter_data.field.is_empty() {
         ui.painter().with_clip_rect(viewport).text(
             viewport.left_center()-vec2(shift, 0.0), 
