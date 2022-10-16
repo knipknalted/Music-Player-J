@@ -4,11 +4,11 @@ use egui::{pos2, vec2, Color32, FontId};
 
 use crate::spogify::{SpogApp, QueueMode, get_names_in_dir, singleline_galley, Song, init_song};
 
-pub const WHITE: egui::Color32 = egui::Color32::WHITE;
-pub const BLACK: egui::Color32 = egui::Color32::BLACK;
-pub const LIGHT_GREY: egui::Color32 = egui::Color32::from_rgb(167, 167, 167);
-pub const _BACKGROUND: egui::Color32 = egui::Color32::from_rgb(27, 27, 27);
-pub const SLIDER_BACKGROUND: egui::Color32 = egui::Color32::from_rgb(60, 60, 60);
+pub const WHITE: Color32 = Color32::WHITE;
+pub const BLACK: Color32 = Color32::BLACK;
+pub const LIGHT_GREY: Color32 = Color32::from_rgb(167, 167, 167);
+pub const _BACKGROUND: Color32 = Color32::from_rgb(27, 27, 27);
+pub const SLIDER_BACKGROUND: Color32 = Color32::from_rgb(60, 60, 60);
 pub const _FERN: Color32 = Color32::from_rgb(104, 185, 115);
 pub const _CUSTOM_BLUE: Color32 = Color32::from_rgb(132,150,255);
 pub const SPACING: f32 = 35.0;
@@ -28,7 +28,7 @@ pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, _frame: &mut efra
         );
 
         // let currently_reading = ui.make_persistent_id("currently_reading");
-        // Label current directory and offer to save it isn't already saved
+        // Label current directory and offer to save if it isn't already saved
         ui.horizontal(|ui| {
             ui.label(&app.dir_path);
             if ui.button("Open in file explorer(WINDOWS ONLY?)").clicked() {
