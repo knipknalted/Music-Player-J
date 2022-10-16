@@ -1,9 +1,8 @@
-use std::{path::Path};
+use std::{path::Path, process::Command};
 
-use egui::{pos2};
-use epaint::{Color32, vec2, FontId};
+use egui::{pos2, vec2, Color32, FontId};
 
-use crate::spogify::{SpogApp, QueueMode, get_names_in_dir, singleline_galley, Song, init_song, read_m4a};
+use crate::spogify::{SpogApp, QueueMode, get_names_in_dir, singleline_galley, Song, init_song};
 
 pub const WHITE: egui::Color32 = egui::Color32::WHITE;
 pub const BLACK: egui::Color32 = egui::Color32::BLACK;
@@ -14,13 +13,30 @@ pub const _FERN: Color32 = Color32::from_rgb(104, 185, 115);
 pub const _CUSTOM_BLUE: Color32 = Color32::from_rgb(132,150,255);
 pub const SPACING: f32 = 35.0;
 pub const BUTTON_SIDE: f32 = 40.0;
+
 pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     egui::Window::new("Settings").open(&mut app.window_bools.settings).show(ctx, |ui| {
         let directory_error = ui.make_persistent_id("directory_error");
-        let currently_reading = ui.make_persistent_id("currently_reading");
+
+        // App version
+        ui.painter().text(
+            ui.max_rect().right_top() + vec2(-10.0, 10.0), 
+            egui::Align2::RIGHT_TOP, 
+            env!("CARGO_PKG_VERSION"), 
+            egui::FontId::proportional(14.0), 
+            ctx.style().visuals.text_color()
+        );
+
+        // let currently_reading = ui.make_persistent_id("currently_reading");
         // Label current directory and offer to save it isn't already saved
         ui.horizontal(|ui| {
             ui.label(&app.dir_path);
+            if ui.button("Open in file explorer(WINDOWS ONLY?)").clicked() {
+                Command::new("explorer")
+                    .arg(&app.dir_path)
+                    .spawn()
+                    .unwrap();
+            }
             if !app.settings.saved_dirs.contains(&app.dir_path) {
                 if ui.button("Save Directory?").clicked() {
                     app.settings.saved_dirs.push(app.dir_path.clone());
@@ -57,33 +73,6 @@ pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, _frame: &mut efra
                     app.track_list = new_songs;
                     app.song_loading.request = true;
 
-                    /*
-
-                    // *** Can't use fn bc closure requires exlusive borrow
-                    // Very clumsy, want to use a fn that does not require a mut borrow
-                    app.song_loading.active = true;
-                    app.song_loading.position = 0;
-                    let tx = app.song_loading.tx.clone();
-                    
-                    // Threaded song metadata reading
-                    // First we need a copy of every file path we already have
-                    let paths = {
-                        let mut paths = vec![];
-                        app.track_list.iter().for_each(|x| {
-                            paths.push((*x.path).clone());
-                        });
-                        paths
-                    };
-                    std::thread::spawn(move || {
-                        paths.iter().for_each(|x| {
-                            // println!("Thread: Reading {}", x);
-                            tx.send(read_file_data(x)).unwrap();
-                        });
-                    });
-                    
-                    */
-
-                    //app.boolean = false;
                 } else if !app.song_loading.active {
                     ui.memory().open_popup(directory_error);
                 }
@@ -118,66 +107,30 @@ pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, _frame: &mut efra
         if ui.button("Switch App Mode").clicked() {
             app.settings.mini_mode = !app.settings.mini_mode;
         }
-        let mut dir_buf: Option<String> = None;
+
         ui.collapsing("Saved Directories", |ui| {
             for i in 0..app.settings.saved_dirs.len() {
                 ui.horizontal(|ui| {
                     if ui.button(&app.settings.saved_dirs[i]).clicked() && !app.song_loading.active {
-                        dir_buf = Some(app.settings.saved_dirs[i].clone());
                         if Path::exists(Path::new(&app.settings.saved_dirs[i])) {
+                            // Change the app's directory
                             app.dir_path = app.settings.saved_dirs[i].clone();
                             app.current_index = 0;
-                            // let new_names = get_names_in_dir(&app.dir_path);
-                            // let new_songs = {
-                            //     let mut new_songs = vec![];
-                            //     for i in 0..new_names.len() {
-                            //         new_songs.push(init_song(&app.dir_path, &new_names[i], i))
-                            //     }
-                            //     new_songs
-                            // };
-                            // app.track_list = new_songs;
+                            // Request to refresh the app's track_list
                             app.song_loading.request = true;
 
-                            // *** Can't use fn bc closure requires exlusive borrow
-                            // Very clumsy, want to use a fn that does not require a mut borrow
-
-                            /*
-
-                            app.song_loading.active = true;
-                            app.song_loading.position = 0;
-                            let tx = app.song_loading.tx.clone();
-                            
-                            // Threaded song metadata reading
-                            // First we need a copy of every file path we already have
-                            let paths = {
-                                let mut paths = vec![];
-                                app.track_list.iter().for_each(|x| {
-                                    paths.push((*x.path).clone());
-                                });
-                                paths
-                            };
-                            std::thread::spawn(move || {
-                                paths.iter().for_each(|x| {
-                                    // println!("Thread: Reading {}", x);
-                                    tx.send(read_file_data(x)).unwrap();
-                                });
-                            });
-
-                            */
-                            
-                            // for i in 0..new_names.len() {
-                            //     if let Some(t) = get_song(app.direct_path.as_str(), new_names[i].as_str(), i) {
-                            //         songs.push(t)
-                            //     }
-                            // }
-                            // app.track_list = songs;
-                            //app.boolean = false;
                         } else {
                             ui.memory().open_popup(directory_error);
                         }
                     }
                     if ui.button("Remove directory").clicked() {
                         app.settings.saved_dirs.remove(i);
+                    }
+                    if ui.button("Open in file explorer(WINDOWS ONLY?)").clicked() {
+                        Command::new("explorer")
+                            .arg(&app.settings.saved_dirs[i])
+                            .spawn()
+                            .unwrap();
                     }
                 });
             }
@@ -265,11 +218,11 @@ pub fn play_pause(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) -> 
     // let detail_color = app.color_data.widget_detail_color;
 
     let rect = egui::Rect::from_min_size(rect_nw, 2.0*vec2(BUTTON_SIDE, BUTTON_SIDE));
-    // println!("{}", rect.center().x);
-    // making space for it
+
+    // Making space for it
     let mut response = ui.allocate_rect(rect, egui::Sense::click());
 
-    // noting if it's been clicked
+    // Noting if it's been clicked
     if response.clicked() {
         app.on = !app.on;
         response.mark_changed();
@@ -284,7 +237,7 @@ pub fn play_pause(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) -> 
 
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, app.on, ""));
 
-    //paint it on the screen
+    // Paint it on the screen
     if ui.is_rect_visible(rect) {
 
         let mut visuals = ui.style().interact_selectable(&response, app.on);
@@ -300,14 +253,12 @@ pub fn play_pause(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) -> 
         ui.painter().rect(rect, radius, color, visuals.fg_stroke);
         
         if app.on {
-            //ui.painter().extend(pause);
             ui.painter().text(
                 center, 
                 egui::Align2::CENTER_CENTER, "⏸", 
                 FontId::proportional(rect.height()-6.0), 
                 detail_color);
         } else {
-            //ui.painter().add(play); ▶
             ui.painter().text(
                 center, 
                 egui::Align2::CENTER_CENTER, "⏵", 
@@ -326,13 +277,9 @@ pub fn next(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) -> egui::
 
     let response = ui.allocate_rect(rect, egui::Sense::click());
 
-    // noting if it's been clicked
     if response.clicked() && !app.track_list.is_empty() {
         app.skip_song();
-        // response.mark_changed();
     }
-
-    //response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
 
     //paint it on the screen
     if ui.is_rect_visible(rect) {
@@ -358,13 +305,10 @@ pub fn loop_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) ->
     let color = app.color_data.widget_color;
     let detail_color = app.color_data.widget_detail_color;
 
-    // println!("space: {}", (available_rect.width()-rect.right_center().x));
-
     let rect = egui::Rect::from_min_size(rect_nw, vec2(BUTTON_SIDE, BUTTON_SIDE));
 
     let mut response = ui.allocate_rect(rect, egui::Sense::click());
 
-    // noting if it's been clicked
     if response.clicked() {
         if matches!(app.mode, QueueMode::Loop) {
             app.mode = QueueMode::Next;
@@ -374,9 +318,6 @@ pub fn loop_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) ->
         response.mark_changed();
     }
 
-    //response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, *on, ""));
-
-    //paint it on the screen
     if ui.is_rect_visible(rect) {
 
         let mut visuals = ui.style().interact_selectable(&response, true);
@@ -413,32 +354,13 @@ pub fn button_decals(mode: &mut QueueMode, ui: &mut egui::Ui, shuffle_nw: egui::
 }
 
 pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min: f32, max: f32) {
-    // let available_rect = ui.max_rect();
-
-    // Pulled from the Loop Button to figure out where we need to stop the slider if there's not enough space for full size
-    // let h_offset = vec2(2.5 * SPACING, 0.0) + vec2(2.0 * ui.spacing().interact_size.y, 0.0);
-    // let loop_x = available_rect.center().x + h_offset.x + ui.spacing().interact_size.y;
-
-    // let available_w = available_rect.left();
-    // let h_offset = 5.0*(BUTTON_SIDE+SPACING);
-    // let loop_x = available_w + h_offset + BUTTON_SIDE;
-
-    // let (bot_right, top_left) = (
-    //     available_rect.left_top() + vec2(loop_x+SPACING, 0.5*BUTTON_SIDE+SPACING+SPACING),
-    //     available_rect.right_top() + vec2(-SPACING, SPACING+BUTTON_SIDE+SPACING)
-    // );
-
-    // let bar = egui::Rect::from_two_pos(top_left, bot_right);
-    // let offset = top_left.x;
-    // let v_offset = bar.center().y;
-    // let slide_len = bar.width();
-
+    // Slider bar rect defined externally for better control laying out many custom widgets
     let center = pos2(val_to_pos(app.volume, bar.left(), min, max, bar.width()) as f32, bar.center().y);
     let knob = egui::Rect::from_center_size(center, vec2(24.0,24.0));
 
     let knob_response = ui.allocate_rect(knob, egui::Sense::click_and_drag());
-    let bar_response = ui.allocate_rect(bar.shrink2(vec2(12.0, 0.0)), egui::Sense {click: true, drag: true, focusable: true});
-    if bar_response.clicked() {
+    let bar_response = ui.allocate_rect(bar.expand(6.0), egui::Sense {click: true, drag: true, focusable: true});
+    if bar_response.is_pointer_button_down_on() {
         let pos = bar_response.interact_pointer_pos().unwrap().x;
         app.volume = pos_to_val(pos, bar.left(), min, max, bar.width());
         app.sink.set_volume(app.volume);
@@ -447,10 +369,13 @@ pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min
 
     if bar_response.hovered() {
         let delta = ui.ctx().input().scroll_delta.y;
-        let new_pos = val_to_pos(app.volume, bar.left(), min, max, bar.width()) + delta*0.2;
-        app.volume = pos_to_val(new_pos, bar.left(), min, max, bar.width()).clamp(min, max);
+        // To save some calculations, don't do if there is no scroll/nothing to change
         if delta != 0.0 {
-            app.sink.set_volume(app.volume);
+            let new_pos = val_to_pos(app.volume, bar.left(), min, max, bar.width()) + delta*0.2;
+            app.volume = pos_to_val(new_pos, bar.left(), min, max, bar.width()).clamp(min, max);
+            if !app.settings.muted {
+                app.sink.set_volume(app.volume);
+            }
         } 
     }
 
@@ -458,38 +383,45 @@ pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min
         let delta = knob_response.drag_delta().x;
         let new_pos = val_to_pos(app.volume, bar.left(), min, max, bar.width()) + delta;
         app.volume = pos_to_val(new_pos, bar.left(), min, max, bar.width()).clamp(min, max);
-        app.sink.set_volume(app.volume);
+        if !app.settings.muted {
+            app.sink.set_volume(app.volume);
+        }
     }
 
+    // Painting the slider bar
     ui.painter().rect(bar, egui::Rounding::same(10.0), SLIDER_BACKGROUND, egui::Stroke {width: 0.0, color: BLACK});
-    
-    let text = if !app.settings.muted {
-        String::from("🔊")
-    } else if !app.settings.muted && app.volume<0.075 {
+    // Scuffed speaker icon text
+    let text = if app.settings.muted {
+        String::from("🔈x")
+    } else if app.volume == 0.0 {
+        String::from("🔈")
+    } else if app.volume<0.5*max {
         String::from("🔉")
     } else {
-        String::from("🔈")
+        String::from("🔊")
     };
+
     let speaker_rect = ui.painter().text(
         bar.left_center()-vec2(20.0, 0.0), 
         egui::Align2::CENTER_CENTER, 
         text, FontId::proportional(32.0), 
         LIGHT_GREY);
     let speaker_response = ui.allocate_rect(speaker_rect, egui::Sense::click());
+    // Simple way to show if pointer is over the mute button (speaker)
     if speaker_response.hovered() {
         let mask = egui::Color32::from_white_alpha(11);
         ui.painter().rect_filled(speaker_rect, egui::Rounding::none(), mask);
     }
+
     if speaker_response.clicked() {
+        // Switch value of muted
         app.settings.muted = !app.settings.muted;
+        // If new value is true, set sink volume to 0 but leave app's stored volume value, if false, set sink to app volume
         if app.settings.muted {
             app.sink.set_volume(0.0)
         } else {
             app.sink.set_volume(app.volume)
         }
-    }
-    if ui.max_rect().width()>1045.0 {
-        
     }
 
     if bar_response.hovered() | knob_response.is_pointer_button_down_on() {
@@ -509,7 +441,7 @@ fn val_to_pos(val: f32, offset: f32, min: f32, max: f32, slide_len: f32) -> f32 
 
 // UNFINISHED exponential volume_sliders
 fn _exp_p_to_v(pos: f32, offset: f32, slide_len: f32) -> f32 {
-    let x = 100.0*(pos-offset)/slide_len;
+    let _x = 100.0*(pos-offset)/slide_len;
     println!("{}",((pos.powi(2)-offset)/slide_len));
     (1.9_f32.powf((pos.powi(2)-offset)/slide_len))-1.9_f32.powf(offset/slide_len)
 }
@@ -538,6 +470,7 @@ pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect)
     ui.painter().rect_filled(rect, egui::Rounding::same(3.0), SLIDER_BACKGROUND);
     if app.track_list.len()>0 {
         let song: &Song = &app.track_list[app.current_index];
+        // Determine whether there is metadata to display -> use file name if not
         let complete_song = if !song.title.is_empty() && !song.artist.is_empty() && !song.album.is_empty() {
             true
         } else {false};
@@ -546,6 +479,7 @@ pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect)
 
         if app.settings.mini_mode {
             let left_pos = rect.left_center();
+            // if there is some metadata, use it
             if complete_song {
                 let right_pos = left_pos + vec2((2.0/3.0)*width, 0.0);
                 let (title_gal, title_height) = singleline_galley(
@@ -582,12 +516,15 @@ pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect)
             }
         }
     }
-    ui.allocate_rect(rect, egui::Sense::click())
+    let response = ui.allocate_rect(rect, egui::Sense::click());
+    if response.is_pointer_button_down_on() {
+        let shade = egui::Color32::from_black_alpha(60);
+        ui.painter().rect_filled(rect, egui::Rounding::same(3.0), shade);
+    }
+    response
 }
 
 pub fn settings_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) {
-    // let available_rect = ui.max_rect();
-    // let center = available_rect.right_top() + vec2(-(20.0 + SPACING), SPACING+BUTTON_SIDE);
     let rect = egui::Rect::from_min_size(rect_nw, vec2(BUTTON_SIDE, BUTTON_SIDE));
     let cog_response = ui.allocate_rect(rect, egui::Sense::click());
 
@@ -602,7 +539,7 @@ pub fn settings_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2
             rect.center(), 
             egui::Align2::CENTER_CENTER, "⚙", 
             FontId::proportional(30.0), 
-            epaint::Color32::WHITE);
+            Color32::WHITE);
     } else {
         ui.painter().circle(rect.center(), 20.0, SLIDER_BACKGROUND, egui::Stroke{width: 1.0, color:LIGHT_GREY});
         ui.painter().text(
@@ -610,9 +547,7 @@ pub fn settings_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2
             egui::Align2::CENTER_CENTER, "⚙", 
             FontId::proportional(30.0), 
             LIGHT_GREY);
-    } 
-    // let button = egui::Button::new("⚙");
-        
+    }         
 }
 
 // Toggles whether the app is in full or portable mode
@@ -630,7 +565,7 @@ pub fn mode_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) {
             rect.center(), 
             egui::Align2::CENTER_CENTER, "↑", 
             FontId::proportional(30.0), 
-            epaint::Color32::WHITE);
+            WHITE);
     } else {
         ui.painter().circle(rect.center(), 20.0, SLIDER_BACKGROUND, egui::Stroke{width: 1.0, color:LIGHT_GREY});
         ui.painter().text(
@@ -651,10 +586,11 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
     // Accept keyboard input if search bar clicked on
     if bar_response.clicked() {
         app.filter_data.active = true;
-        // test_width(ui);
-    } if bar_response.clicked_elsewhere() {
+    } 
+    if bar_response.clicked_elsewhere() {
         app.filter_data.active = false;
-    } if app.filter_data.active {
+    } 
+    if app.filter_data.active {
         for event in &ui.ctx().input().events {
             if let egui::Event::Key { key: egui::Key::Enter, pressed: true, modifiers: _ } = event {
                 app.filter_data.active = false;
@@ -676,7 +612,7 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
 
     let offset = vec2(45.0-shift,0.0);
 
-    let line = epaint::Shape::LineSegment {
+    let line = egui::epaint::Shape::LineSegment {
         points: [
             bar.left_top()+vec2(app.filter_data.text_width, 5.0)+offset, 
             bar.left_top()+vec2(app.filter_data.text_width, 35.0)+offset
@@ -714,7 +650,6 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
         if app.play_dur.elapsed().unwrap().as_secs() % 2 == 0 {
             ui.painter().add(line);
         }
-        // ui.painter().add(line);
     } else {
         // Painting the bar
         ui.painter().rect_filled(bar, egui::Rounding::same(20.0), SLIDER_BACKGROUND);

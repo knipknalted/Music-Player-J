@@ -120,13 +120,13 @@ impl Song {
 // Creates a galley that cuts off with ... if it exceeds the given size
 pub fn singleline_galley(ui: &mut egui::Ui, max_width: f32, text: &Rc<String>, color: egui::Color32, size: f32, halign: egui::Align) -> (Arc<egui::Galley>, f32) {
     let job = egui::text::LayoutJob {
-        sections: vec![epaint::text::LayoutSection {
+        sections: vec![egui::epaint::text::LayoutSection {
             leading_space: 0.0,
             byte_range: 0..text.len(),
             format: egui::TextFormat::simple(egui::FontId::proportional(size), color),
         }],
         text: text.to_string(),
-        wrap: epaint::text::TextWrapping {
+        wrap: egui::epaint::text::TextWrapping {
             max_width, max_rows: 1, ..Default::default()
         },
         break_on_newline: false,
@@ -220,9 +220,6 @@ impl SpogApp {
 
         let direct_path = String::from(&mem.dir_path); // What directory path are we using
         let file_names = get_names_in_dir(&direct_path); // Get all file paths from that directory
-        for path in &file_names {
-            // println!("{path}");
-        }
         
         // Make an empty list of songs
         let mut track_list:Vec<Song> = Vec::with_capacity(file_names.len());
@@ -381,6 +378,7 @@ impl SpogApp {
                             }
                         });
                     }
+                    // If the current song display is clicked, scroll to that song in the list
                     if current_response.clicked() && i == self.current_index {
                         ui.scroll_to_rect(rect, Some(egui::Align::Center));
                     }
@@ -389,7 +387,9 @@ impl SpogApp {
         }
     }
 
-    // Take a sink, track_path, and thread vec (to drop the thread handle when we're done) and play the song 
+    // Plays song by using a scoped thread to append a source to the app's sink
+    // Unsure about whether this is an improvement to cloning Arc<Sink> and moving it into a thread
+    // Not certain that threads inside scope are ever closed, as I had to close them manually when using non-scoped threads
     pub fn run_track(&mut self) {
         println!("{}", self.track_list[self.current_index].file_name);
         self.play_dur = SystemTime::now();
@@ -417,11 +417,13 @@ impl SpogApp {
         }
     }
 
+    // Resets the apps sink to play a new song
     pub fn set_sink(&mut self) {
         self.sink = Arc::new(rodio::Sink::try_new(&self.stream_handle).unwrap());
         self.sink.set_volume(self.volume);
     }
 
+    // Skips current song
     pub fn skip_song(&mut self) {
         self.fetch_next_song();
         self.threads.clear();
@@ -436,24 +438,22 @@ impl SpogApp {
     pub fn go_back(&mut self) {
         // Don't try to go back if there are no previous songs
         if self.past_songs.len() > 0 {
-            // If the duration is less than 3 seconds, go to previous song
+            // If the duration is greater than 3 seconds, restart the same song
             if self.play_dur.elapsed().unwrap() > Duration::from_secs(3) {
                 self.threads.clear();
                 self.sink.stop();
+
                 self.set_sink();
-                // self.sink = set_sink(&self.stream_handle, self.volume);
                 self.run_track();
             }
-            // If the duration is greater than 3 seconds, restart the same song 
+            // Otherwise, go to the previous song
             else {
                 self.current_index = self.past_songs.pop_front().unwrap();
             
                 self.threads.clear();
                 self.sink.stop();
+
                 self.set_sink();
-                // self.sink = set_sink(&self.stream_handle, self.volume);
-                // let sink = self.sink.clone();
-                // run_track(sink, &self.track_list[self.current_index].path, &mut self.threads);
                 self.run_track();
             }
         }
