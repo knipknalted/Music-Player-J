@@ -69,6 +69,8 @@ pub fn string_ext(file_name: &str) -> Option<SupportedFormat> {
     }
 }
 
+pub trait Songlike {}
+
 // Information about a song and path to it
 #[derive(Clone, PartialEq, Eq)]
 pub struct Song {
