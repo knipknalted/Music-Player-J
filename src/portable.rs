@@ -7,7 +7,7 @@ const SPACING: f32 = 10.0;
 const BUTTON_SIDE: f32 = 40.0;
 
 // Lays out panels for the miniature version of the app
-pub fn portable_layout(ctx: &egui::Context, app: &mut SpogApp) {
+pub fn portable_layout(ctx: &egui::Context, app: &mut SpogApp, frame: &mut eframe::Frame) {
     egui::CentralPanel::default().show(ctx, |ui| {
 
         let bigmode_nw = ui.max_rect().left_top() + vec2(40.0, SPACING+0.5*BUTTON_SIDE);
@@ -42,9 +42,8 @@ pub fn portable_layout(ctx: &egui::Context, app: &mut SpogApp) {
         next(ui, app, next_nw);
         loop_button(ui, app, loop_nw);
         volume_slider(ui, app, volume_rect, 0.0, 0.3);
-        mode_button(ui, app, bigmode_nw);
+        mode_button(ui, app, bigmode_nw, frame);
         settings_button(ui, app, settings_nw);
         button_decals(&mut app.mode, ui, shuffle_nw, loop_nw);
-        // println!("{}", ui.max_rect().bottom());
     });
 }
