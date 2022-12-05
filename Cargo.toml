@@ -1,6 +1,6 @@
 [package]
 name = "music_player_j"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 build = "build.rs"
 
@@ -13,7 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 egui = "0.19.0"
 eframe = {version = "0.19.0", features = ["persistence"]}
-rodio = {version = "0.15.0", features = ["symphonia-all"]}
+rodio = {version = "0.16.0", features = ["symphonia-all"]}
 rand = "0.8.5"
 id3 = "1.3.0"
 mp4ameta = "0.11.0"         
@@ -28,6 +28,10 @@ image = "0.24.3"
 egui_extras = {version = "0.19.0", features = ["image"]}
 # windows-sys = "0.42.0"
 # embed-resource = "1.7.3"
+magnum = { path = "D:\\Documents\\Code\\Github\\magnum-rs", features = ["with_rodio"]}
+lofty = "0.9.0"
+cpal = "0.14.2"
+colorgrad = "0.6.2"
 
 [dependencies.windows-sys]
 version = "0.42.0"

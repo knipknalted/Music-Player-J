@@ -1,16 +1,23 @@
-use std::{fs::{read_dir,DirEntry, File},thread::{self, JoinHandle}, 
+use std::{fs::File,thread::{self, JoinHandle}, 
     io::BufReader,sync::{Arc, mpsc::{Sender, Receiver}}, collections::{VecDeque, HashMap}, time::{Duration, SystemTime}, 
-    f64::consts::{PI, FRAC_PI_3}, rc::Rc, path::{PathBuf, Path}, cmp::{Reverse, Eq, PartialEq,}
+    rc::Rc, path::{PathBuf, Path}, cmp::{Reverse, Eq, PartialEq,}
 };
 
-use egui_extras::RetainedImage;
-use rodio::{Decoder, Source};
+use colorgrad::Gradient;
+use cpal::{Device, traits::HostTrait};
+use lofty::{AudioFile, Accessor};
+use magnum::container::ogg::OpusSourceOgg;
+use rodio::{Decoder, Source, DeviceTrait};
 use rand::{self, Rng};
 use egui::{vec2};
 use serde::{Serialize, Deserialize};
 use thin_vec::{thin_vec, ThinVec};
 use time::OffsetDateTime;
-use crate::{controls::{settings_window,LIGHT_GREY, FERN, SLIDER_BACKGROUND}, portable::portable_layout, full::full_layout};
+use crate::{controls::{settings_window}, portable::portable_layout, full::full_layout, song::CachedSong};
+use crate::song::{Song, init_dir};
+
+// Duration of one full loop through color gradient
+const COLOR_LOOP_DUR: f32 = 20.0;
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub enum QueueMode {
@@ -33,6 +40,7 @@ pub enum SupportedFormat {
     flac,
     aac,
     ogg,
+    opus,
 }
 
 impl std::fmt::Display for SupportedFormat {
@@ -44,190 +52,8 @@ impl std::fmt::Display for SupportedFormat {
             Self::flac => write!(f, "flac"),
             Self::aac => write!(f, "aac"),
             Self::ogg => write!(f, "ogg"),
+            Self::opus => write!(f, "opus"),
         }
-    }
-}
-
-pub fn string_ext(file_name: &str) -> Option<SupportedFormat> {
-    let chars = file_name.chars();
-    let mut buf: String = "".to_string();
-    chars.for_each(|c| {
-        if c != '.' {
-            buf.push(c);
-        } else  {
-            buf.clear();
-        }
-    });
-    match buf.as_str() {
-        "mp3" => Some(SupportedFormat::mp3),
-        "m4a" => Some(SupportedFormat::m4a),
-        // "opus" => Some(SupportedFormat::opus),
-        "flac" => Some(SupportedFormat::flac),
-        "aac" => Some(SupportedFormat::aac),
-        "ogg" => Some(SupportedFormat::ogg),
-        _ => None
-    }
-}
-
-pub trait Songlike {}
-
-// Information about a song and path to it
-#[derive(Clone, PartialEq, Eq)]
-pub struct Song {
-    pub title: Rc<String>,    // name/title of the song
-    pub artist: Rc<String>,  // artist name for the song
-    pub album: Rc<String>,   // album name for the song
-    pub file_name: Rc<String>, // file name
-    pub format: SupportedFormat, // File type/extension for convenience, (unnecessary?)
-    pub path: Rc<String>,    // file path to the song ***Maybe change to Path/PathBuf itself?
-    pub date: OffsetDateTime,
-    pub index: usize,    // number to keep track of what the index in the list is for the song, for convenience
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct CachedSong {
-    pub title: String,
-    pub artist: String,
-    pub album: String,
-}
-
-impl Song {
-    pub fn is_complete(&self) -> bool {
-        self.title.is_empty() && self.artist.is_empty() && self.album.is_empty() && self.date != OffsetDateTime::UNIX_EPOCH
-    }
-
-    pub fn to_cached_song(&self) -> CachedSong {
-        CachedSong {
-            title: (*self.title).clone(), 
-            artist: (*self.artist).clone(), 
-            album: (*self.album).clone(), 
-        }
-    }
-
-    // Render a song in main window song list
-    pub fn render_card(&self, ui: &mut egui::Ui, rect: egui::Rect, track_i: usize, layout_j: usize, current_index: usize, selected: Option<usize>) -> egui::Response {
-        // let complete_song = !self.title.is_empty() && !self.artist.is_empty() && !self.album.is_empty();
-        let card_response = ui.allocate_rect(rect, egui::Sense {click: true, drag: false, focusable: true});
-        let digits: f32 = (track_i + 1).to_string().chars().count() as f32;
-
-        // Position for the songs number in the list
-        let num_pos = rect.left_center() + vec2(20.0, 0.0);
-
-        let color = if track_i == current_index {
-            FERN
-        } else {
-            LIGHT_GREY
-        };
-
-        if card_response.hovered() || {selected.is_some() && selected.unwrap() == layout_j} {
-            ui.painter().rect_filled(rect, egui::Rounding::same(3.0), SLIDER_BACKGROUND);
-            ui.painter().text(
-                num_pos, 
-                egui::Align2::LEFT_CENTER, 
-                "▶".to_string(), 
-                egui::FontId::proportional(28.0), 
-                color
-            );
-        } else {
-            ui.painter().text(
-                num_pos, 
-                egui::Align2::LEFT_CENTER, 
-                (track_i+1).to_string(), 
-                egui::FontId::proportional(28.0), 
-                color
-            );
-        }
-
-        let first_pos = if self.title.is_empty() {
-            rect.left_center() + vec2(20.0 + 35.0 + digits*10.0, 0.0)
-        } else {
-            rect.left_center() + vec2(20.0 + 35.0 + digits*10.0, -8.0)
-        };
-
-        // let first_pos = rect.left_center() + vec2(20.0 + 35.0 + digits*10.0, 0.0); 
-        let total_width = rect.width() - first_pos.x - 3.0*20.0;
-
-        use egui::Align;
-        // If there's any metadata, use an actual label, otherwise just show the path
-        // I think this can be refactored
-
-        // let (main_gal, main_height) = if !self.title.is_empty() {
-        //     singleline_galley(
-        //         ui, 0.5*total_width, &self.title, LIGHT_GREY, 24.0, Align::LEFT
-        //     )
-        // } else {
-        //     singleline_galley(
-        //         ui, total_width, &self.file_name, LIGHT_GREY, 24.0, Align::LEFT
-        //     )
-        // };
-
-        // Handling the title&artist or file name rendering
-        if !self.title.is_empty() {
-            // Positions for title, artist, and album text
-            let (title_gal, title_height) = singleline_galley(
-                ui, 0.5*total_width, &self.title, color, 24.0, Align::LEFT
-            );
-            let (artist_gal, artist_height) = singleline_galley(
-                ui, 0.5*total_width, &self.artist, color, 18.0, Align::LEFT
-            );
-
-            let artist_pos = first_pos + vec2(0.0, 18.0);
-
-            ui.painter().galley(first_pos - vec2(0.0, 0.5*title_height), title_gal);
-            ui.painter().galley(artist_pos - vec2(0.0, 0.5*artist_height), artist_gal);
-        } else {
-            let file_name = &self.file_name;
-            let (name_gal, name_height) = singleline_galley(
-                ui, total_width, file_name, color, 24.0, Align::LEFT
-            );
-            ui.painter().galley(first_pos - vec2(0.0, 0.5*name_height), name_gal);
-        }
-
-        if !self.title.is_empty() && !self.album.is_empty() {
-            let (album_gal, album_height) = singleline_galley(
-                ui, 0.25*total_width, &self.album, color, 20.0, Align::LEFT
-            );
-            let album_pos = first_pos + vec2(0.5*total_width + 20.0, 8.0);
-            ui.painter().galley(album_pos- vec2(0.0, 0.5*album_height), album_gal);
-        }
-
-        if self.date != OffsetDateTime::UNIX_EPOCH {
-            let text = Rc::new(format!("{} {}, {}", self.date.month(), self.date.day(), self.date.year()));
-            let (date_gal, date_height) = singleline_galley(
-                ui, 0.25*total_width, &text, color, 20.0, Align::LEFT
-            );
-            let date_pos = first_pos + vec2(0.85*total_width + 20.0, 8.0);
-            ui.painter().galley(date_pos- vec2(0.0, 0.5*date_height), date_gal);
-        }
-
-        // Still here bc I'm insecure about deleting working code
-        // if complete_song {
-        //     // Positions for title, artist, and album text
-        //     let (title_gal, title_height) = singleline_galley(
-        //         ui, 0.5*total_width, &self.title, color, 20.0, Align::LEFT
-        //     );
-        //     let (artist_gal, artist_height) = singleline_galley(
-        //         ui, 0.25*total_width, &self.artist, color, 16.0, Align::LEFT
-        //     );
-        //     let (album_gal, album_height) = singleline_galley(
-        //         ui, 0.25*total_width, &self.album, color, 20.0, Align::LEFT
-        //     );
-        //     // let artist_pos = first_pos + vec2(0.5*total_width + 20.0, 0.0);
-        //     // let album_pos = first_pos + vec2(0.75*total_width + 20.0, 0.0);
-        //     let artist_pos = first_pos + vec2(0.0, 14.0);
-        //     let album_pos = first_pos + vec2(0.75*total_width + 20.0, 0.0);
-            
-        //     ui.painter().galley(first_pos - vec2(0.0, 0.5*title_height), title_gal);
-        //     ui.painter().galley(artist_pos - vec2(0.0, 0.5*artist_height), artist_gal);
-        //     ui.painter().galley(album_pos- vec2(0.0, 0.5*album_height), album_gal);
-        // } else {
-        //     let file_name = &self.file_name;
-        //     let (name_gal, name_height) = singleline_galley(
-        //         ui, total_width, file_name, color, 24.0, Align::LEFT
-        //     );
-        //     ui.painter().galley(first_pos - vec2(0.0, 0.5*name_height), name_gal);
-        // }
-        card_response
     }
 }
 
@@ -243,56 +69,6 @@ pub fn split_artists(artist_str: &str) -> Vec<Rc<String>> {
     artist_vec
 }
 
-// Initialise and return vec of songs in directory (initialise is not async, so it doesn't read metadata and should be fast)
-// Current slowdown is checking to make sure that a file is a valid audio file format
-pub fn init_dir(dir_path: &str) -> Vec<Song> {
-    let file_names = get_names_in_dir(dir_path);
-    let mut track_list: Vec<Song> = vec![];
-    
-    for i in 0..file_names.len() {
-        let try_format = string_ext(&file_names[i]);
-        if let Some(format) = try_format {
-            let file_path = format!(r"{}/{}", dir_path, file_names[i]);
-            track_list.push(init_song(&file_path, &file_names[i], format, i));
-        }
-    }
-    track_list
-}
-
-// Used on app launch/setting directory, does not read metadata to avoid large load time
-pub fn init_song(file_path: &str, file_name: &str, format: SupportedFormat, index: usize) -> Song {
-    Song {
-        title: Rc::new("".to_string()),
-        artist: Rc::new("".to_string()),
-        album: Rc::new("".to_string()),
-        file_name: Rc::new(file_name.to_string()),
-        format: format,
-        path: Rc::new(file_path.to_string()),
-        date: OffsetDateTime::UNIX_EPOCH,
-        index,
-    }
-}
-
-// Creates a galley that cuts off with ... if it exceeds the given size
-pub fn singleline_galley(ui: &mut egui::Ui, max_width: f32, text: &Rc<String>, color: egui::Color32, size: f32, halign: egui::Align) -> (Arc<egui::Galley>, f32) {
-    let job = egui::text::LayoutJob {
-        sections: vec![egui::epaint::text::LayoutSection {
-            leading_space: 0.0,
-            byte_range: 0..text.len(),
-            format: egui::TextFormat::simple(egui::FontId::proportional(size), color),
-        }],
-        text: text.to_string(),
-        wrap: egui::epaint::text::TextWrapping {
-            max_width, max_rows: 1, ..Default::default()
-        },
-        break_on_newline: false,
-        halign,
-        ..Default::default()
-    };
-    let height = job.font_height(&ui.fonts());
-    (ui.fonts().layout_job(job), height)
-}
-
 pub struct WindowBools {
     pub directory: bool, // Is the directory window open ***NO LONGER NEEDED
     pub settings: bool, // Is the settings window open
@@ -300,6 +76,8 @@ pub struct WindowBools {
 
 pub struct RgbShiftData {
     pub now: SystemTime, // Reference time
+    pub grad: Gradient, // color gradient for color shift
+    pub position: f64,
     pub elapsed: Duration, // Elapsed time since self.now, maybe unnecessary
     pub widget_color: egui::Color32, // rgb color for widgets
     pub widget_detail_color: egui::Color32, // color for details ex. text inside a widget, for if I want to make it reactive
@@ -386,13 +164,13 @@ pub enum SliderMode {
 }
 
 pub struct Settings {
-    pub cache_dir: bool,
+    pub cache_dir: bool, // Should we try to cache song metadata on close
     pub color_shift: bool, // Is fancy changing rgb colored buttons on
     pub muted: bool, // Is the sink muted
     pub direct_buf: String, // Buffer for directory changes
     pub mini_mode: bool, // Whether the app is in mini_mode or not
     pub volume_mode: SliderMode, // Whether the volume slider is exponential or linear
-    pub favorites: Vec<usize>, // List of favorited song indices
+    pub favorites: Vec<usize>, // List of favorited song indices *** Switch to path or metadata to keep track
     pub saved_dirs: Vec<String>, // Saved directories for easy switching
     pub sorting: Sorting, // How the song list is being sorted (file name A-Z on launch)
     pub volume_range: (f32, f32), // (Lower, Upper) bounds on volume slider
@@ -400,27 +178,65 @@ pub struct Settings {
     pub download_config: DownloadConfig, // Info to use built-in downloader
     pub num: usize, 
     pub ref_time: SystemTime,
+    pub device_index: usize, // Index of current device in devices vec
     // pub volume_knob_ref: f32,
 }
 
 pub struct PlaybackInfo {
     pub start_time: SystemTime, // Set when the current song starts playing, required by some features
-    pub speed: f32,
+    pub speed: f32, // Sink speed
+    pub elapsed_time: u128, // in millis
+    pub cached_time: u128, // in millis, used to keep track of time wrt pauses
+    pub hidden_queue: usize, // Backend queue used to speed up changing songs, set for next song after playing a song
 }
 
 impl PlaybackInfo {
     fn default() -> Self {
         let start_time = SystemTime::now();
         let speed = 1.0;
-        PlaybackInfo { start_time, speed }
+        let hidden_queue = 0;
+        let elapsed_time = 0;
+        let cached_time = 0;
+        PlaybackInfo {start_time, speed, elapsed_time, cached_time, hidden_queue}
+    }
+}
+
+#[derive(Clone)]
+pub struct SongData {
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub date: OffsetDateTime,
+    pub duration: Option<Duration>
+}
+
+impl SongData {
+    fn default() -> Self {
+        Self { 
+            title: "".to_string(), 
+            artist: "".to_string(), 
+            album: "".to_string(), 
+            date: OffsetDateTime::UNIX_EPOCH, 
+            duration: None 
+        }
+    }
+
+    fn from_duration(duration: Duration) -> Self {
+        Self { 
+            title: "".to_string(), 
+            artist: "".to_string(), 
+            album: "".to_string(), 
+            date: OffsetDateTime::UNIX_EPOCH, 
+            duration: Some(duration), 
+        }
     }
 }
 
 pub struct SongLoad {
     pub request: bool, // Set to true if need to ask app to read metadata from other scopes
     pub active: bool, // Easy toggle on/off to reduce conditionals in use
-    pub tx: Sender<(String, String, String, OffsetDateTime)>, // Sender for title, artist, album
-    pub rx: Receiver<(String, String, String, OffsetDateTime)>, // Receiver for title, artist, album
+    pub tx: Sender<SongData>, // Sender for title, artist, album
+    pub rx: Receiver<SongData>, // Receiver for title, artist, album
     pub position: usize, // Tracks position in tracklist
 }
 
@@ -437,18 +253,31 @@ pub struct SpogApp {
     pub stream_handle: rodio::OutputStreamHandle, // handle to the stream for resetting the sink
     pub sink: Arc<rodio::Sink>, // Atomic reference to a sink, so it's thread safe
     pub threads: ThinVec<JoinHandle<()>>, // temporary place to hold handles to threads, so they can be explicitly dropped, otherwise threads are never closed
-    pub window_bools: WindowBools, // bools for if windows are open
+    pub window_bools: WindowBools, // ***Move to settings*** Bools for if windows are open
     pub color_data: RgbShiftData, // Info using elapsed time to make fancy changing colors might take it out
     pub filter: FilterData, // Info used to render and use custom search bar
     pub settings: Settings, // Various app info/config data and low-use data
     pub playback: PlaybackInfo, // Song playback info *move volume here eventually
     pub song_loading: SongLoad, // sender and reciever used to read song metadata in separate thread
+    pub devices: Vec<Device>, // List of output devices available
 }
 
 impl SpogApp {
     // create a new app with some default settings, given a folder path to start from
     pub fn new(cc: &eframe::CreationContext) -> SpogApp {
-        let mem: SpogMem = read_mem();
+        let mem: SpogMem = read_mem(); // TODO save output device to memory
+
+        let host = cpal::default_host();
+        let devices: Vec<Device> = if let Ok(devices) = host.output_devices() {
+            devices.collect()
+        } else { vec![] };
+        
+        // Get default device and find its index in list of devices
+        // ***DEFINITELY A BETTER WAY TO HANDLE THIS INITIALIZATION
+        let default_device = host.default_output_device().unwrap();
+        let device_index = {
+            devices.iter().position(|x| x.name().unwrap() == default_device.name().unwrap()).unwrap()
+        };
 
         // Set the app to initialize with dark mode and other custom widget settings
         let visuals: egui::Visuals = egui::Visuals::dark();      
@@ -490,6 +319,8 @@ impl SpogApp {
         // Initial info for rgb shift
         let color_data = RgbShiftData {
             now: SystemTime::now(), 
+            grad: colorgrad::sinebow(),
+            position: 0.0,
             elapsed: Duration::new(0, 0), 
             widget_color: egui::Color32::from_rgb(104, 185, 115),
             widget_detail_color: egui::Color32::WHITE,
@@ -512,14 +343,13 @@ impl SpogApp {
             download_config: DownloadConfig::default(),
             num: 0,
             ref_time: SystemTime::now(),
+            device_index,
         };
 
         let playback = PlaybackInfo::default();
 
-        let (tx, rx) = std::sync::mpsc::channel::<(String, String, String, OffsetDateTime)>();
+        let (tx, rx) = std::sync::mpsc::channel::<SongData>();
         let song_loading = SongLoad {request: false, active: false, tx, rx, position: 0,};
-
-        // let images = Images::new();
 
         let mut app = SpogApp {
             dir_path,
@@ -540,12 +370,12 @@ impl SpogApp {
             settings,
             playback,
             song_loading,
-            // images,
+            devices,
         };
         // Starts the current song on the sink, otherwise the song on launch will be skipped(never given to the sink)
         if !app.track_list.is_empty() {
             app.run_track(&cc.egui_ctx);
-            app.sink.pause();
+            app.pause();
         }
         app
     }
@@ -566,6 +396,22 @@ impl SpogApp {
             let next_index = queue_track(&self.mode, self.current_index, self.track_list.len());
             self.current_index = next_index;
         }
+    }
+
+    pub fn playback_update(&mut self) {
+        if self.on {
+            self.playback.elapsed_time = self.playback.cached_time + self.playback.start_time.elapsed().unwrap().as_millis();
+        }
+    }
+
+    pub fn play(&mut self) {
+        self.playback.start_time = SystemTime::now();
+        self.sink.play();
+    }
+
+    pub fn pause(&mut self) {
+        self.playback.cached_time += self.playback.start_time.elapsed().unwrap().as_millis();
+        self.sink.pause();
     }
 
     // showing a button for every song 
@@ -650,52 +496,57 @@ impl SpogApp {
                 });
             }
         }
-        
-        // If there is a song selected with arrow keys, play it
-        if let Some(i) = self.filter.track_i {
-            // println!("{i}");
 
-            if ui.ctx().input().key_pressed(egui::Key::Enter) {
-                // println!("got enter");
+        current_response.context_menu(|ui| {
+            ui.label(format!("Format: {}", self.track_list[self.current_index].format));
+            if ui.button("Queue Song").clicked() {
+                self.queued_song = Some(self.current_index);
             }
-
-            for event in &ui.ctx().input().events {
-                
-                if let egui::Event::Key { key: egui::Key::Enter, pressed: true, modifiers: _ } = event {
-                    // println!("got enter");
-                    self.sink.stop();
-                    self.set_sink();
-                    self.on = true;
-
-                    // Put the previous song into history before playing the one clicked on
-                    if self.past_songs.len() == Some(20).unwrap() {
-                        self.past_songs.pop_back();
-                    }
-                    self.past_songs.insert(0, self.current_index);
-                    // set the current index to be that of the song clicked on
-                    self.current_index = i;
-                    self.run_track(ui.ctx());
+            if ui.button("Favorite").clicked() {
+                if self.settings.favorites.contains(&self.current_index) {
+                    let index = self.settings.favorites.iter().position(|index| *index == self.current_index).unwrap();
+                    self.settings.favorites.swap_remove(index);
+                } else {
+                    self.settings.favorites.push(self.current_index);
                 }
             }
-        }
+        });
+        
+        // If there is a song selected with arrow keys, play it
+        // if let Some(i) = self.filter.track_i {
+        //     // println!("{i}");
+
+        //     for event in &ui.ctx().input().events {
+                
+        //         if let egui::Event::Key { key: egui::Key::Enter, pressed: true, modifiers: _ } = event {
+        //             // println!("got enter");
+        //             self.sink.stop();
+        //             self.set_sink();
+        //             self.on = true;
+
+        //             // Put the previous song into history before playing the one clicked on
+        //             if self.past_songs.len() == Some(20).unwrap() {
+        //                 self.past_songs.pop_back();
+        //             }
+        //             self.past_songs.insert(0, self.current_index);
+        //             // set the current index to be that of the song clicked on
+        //             self.current_index = i;
+        //             self.run_track(ui.ctx());
+        //         }
+        //     }
+        // }
     }
 
-    // Plays song by using a scoped thread to append a source to the app's sink
-    // Unsure about whether this is an improvement to cloning Arc<Sink> and moving it into a thread
-    // Not certain that threads inside scope are ever closed, as I had to close them manually when using non-scoped threads
+    // Plays song at apps current index, does not handle anything with changing the current index
     pub fn run_track(&mut self, ctx: &egui::Context) {
         self.threads.clear();
         println!("{}", self.track_list[self.current_index].file_name);
         self.playback.start_time = SystemTime::now();
-        
         let file = File::open(&*self.track_list[self.current_index].path);
-        let source = if let Ok(file) = file {
-            // let meta = file.metadata().unwrap().modified().unwrap();
-            // let time: chrono::DateTime<chrono::offset::Local> = meta.into();
-            // println!("{}", time.to_rfc2822());
+
+        let rodio_source = if let Ok(file) = file {
             let file = BufReader::new(file);
-            let source = Decoder::new(
-                file);
+            let source = Decoder::new(file);
             match source {
                 Ok(t) => Some(t.buffered()),
                 Err(_) => None,
@@ -703,23 +554,39 @@ impl SpogApp {
         } else {
             None
         };
+
+        let magnum_source: Option<OpusSourceOgg<BufReader<File>>> = if let None = rodio_source {
+            if let Ok(file) = File::open(&*self.track_list[self.current_index].path) {
+                let file = BufReader::new(file);
+                if let Ok(source) = OpusSourceOgg::new(file) {
+                    Some(source)
+                } else {None}
+            } else {None}
+        } else {
+            None
+        };
+
+        
     
-        if let Some(source) = source {
-            // let dur = source.total_duration();
-            // match dur {
-            //     Some(t) => println!("The duration: {}", t.as_secs()),
-            //     None => println!("Couldn't find duration"),
-            // }
-            
+        if rodio_source.is_some() || magnum_source.is_some() {
             let blah = ctx.clone();
             let sink = self.sink.clone();
-            let song_thread = thread::spawn(move || {
-                sink.append(source);
-                sink.sleep_until_end();
-                blah.request_repaint();
-            });
-            self.threads.push(song_thread);
-
+            if let Some(source) = rodio_source {
+                let song_thread = thread::spawn(move || {
+                    sink.append(source);
+                    sink.sleep_until_end();
+                    blah.request_repaint();
+                });
+                self.threads.push(song_thread);
+            } else if let Some(source) = magnum_source {
+                let song_thread = thread::spawn(move || {
+                    sink.append(source);
+                    sink.sleep_until_end();
+                    blah.request_repaint();
+                });
+                self.threads.push(song_thread);
+            }
+                        
             // thread::scope(|s| {
             //     let _song_thread = s.spawn(|| {
             //         self.sink.append(source);
@@ -728,65 +595,57 @@ impl SpogApp {
         }
     }
 
-    // Resets the apps sink to play a new song
+    // Resets the app's sink to play a new song
     pub fn set_sink(&mut self) {
         self.sink = Arc::new(rodio::Sink::try_new(&self.stream_handle).unwrap());
         self.sink.set_volume(self.volume);
         self.sink.set_speed(self.playback.speed)
     }
 
+    // Changes output stream to a different device(given index for self.devices)
+    pub fn set_stream(&mut self, index: usize) {
+        self.on = false;
+        (self.stream, self.stream_handle) = rodio::OutputStream::try_from_device(&self.devices[index]).unwrap();
+        self.set_sink();
+    }
+
     // Skips current song
     pub fn skip_song(&mut self, ctx: &egui::Context) {
         self.fetch_next_song();
-        // self.threads.clear();
         self.sink.stop();
         self.set_sink();
-        // let sink = self.sink.clone();
-        // run_track(sink, &self.track_list[self.current_index].path, &mut self.threads);
         self.run_track(ctx);
         self.on = true;
     }
 
     pub fn go_back(&mut self, ctx: &egui::Context) {
-        // Don't try to go back if there are no previous songs
-        if self.past_songs.len() > 0 {
-            // If the duration is greater than 3 seconds, restart the same song
+        // If more than 3 seconds into the song, restart it
+        if self.playback.start_time.elapsed().unwrap() > Duration::from_secs(3) {
             if self.playback.start_time.elapsed().unwrap() > Duration::from_secs(3) {
-                // self.threads.clear();
                 self.sink.stop();
-
                 self.set_sink();
                 self.run_track(ctx);
             }
-            // Otherwise, go to the previous song
-            else {
-                self.current_index = self.past_songs.pop_front().unwrap();
-            
-                // self.threads.clear();
-                self.sink.stop();
+        } 
+        // Otherwise, go to the previous song in history, if there is one
+        else if self.past_songs.len() > 0 {
+            self.current_index = self.past_songs.pop_front().unwrap();
+            self.sink.stop();
 
-                self.set_sink();
-                self.run_track(ctx);
-            }
+            self.set_sink();
+            self.run_track(ctx);
         }
     }
 
     // Updates the color for rgb color shift
-    pub fn update_color(&mut self) {
-        // Reset the duration at 10pi, which is one full cycle
-        if self.color_data.elapsed > Duration::from_secs_f64(10.0*PI) {
-            self.color_data.now = SystemTime::now();
-            self.color_data.elapsed = Duration::new(0, 0);
+    pub fn update_color(&mut self, dt: f32) {
+        self.color_data.position += (dt/COLOR_LOOP_DUR) as f64;
+        if self.color_data.position > 1.0 {
+            self.color_data.position -= 1.0;
         }
-        self.color_data.elapsed = self.color_data.now.elapsed().unwrap();
-        let angle = self.color_data.elapsed.as_secs_f64();
+        let rgb = self.color_data.grad.at(self.color_data.position).to_rgba8();
 
-        let r = 255 - (((angle*0.1-(0.0*FRAC_PI_3)).sin()*(angle*0.1-(0.0*FRAC_PI_3)).sin())*128.5) as u8;
-        let g = 255 - (((angle*0.1-(1.0*FRAC_PI_3)).sin()*(angle*0.1-(1.0*FRAC_PI_3)).sin())*128.5) as u8;
-        let b = 255 - (((angle*0.1-(2.0*FRAC_PI_3)).sin()*(angle*0.1-(2.0*FRAC_PI_3)).sin())*128.5) as u8;
-
-        let fill_color = egui::Color32::from_rgb(r, g, b);
-        self.color_data.widget_color = fill_color;
+        self.color_data.widget_color = egui::Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
     }
 
     // Synchronously: get valid files in directory and set track_list to it
@@ -942,6 +801,9 @@ impl eframe::App for SpogApp {
     // runs every time the screen updates, ie every frame
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
 
+        self.playback_update();
+        println!("{}", self.playback.elapsed_time);
+
         if self.settings.mini_mode {
             frame.set_window_size(frame.info().window_info.size.clamp(vec2(600.0, 200.0), vec2(600.0, 200.0)));
             portable_layout(ctx, self, frame);
@@ -951,12 +813,14 @@ impl eframe::App for SpogApp {
             }
             full_layout(ctx, self, frame);
         }
+        
         // println!("R: {}, G: {}, B: {}", self.color_data.elapsed.as_secs(), self.color_data.widget_color.g(), self.color_data.widget_color.b());
         
         // Manually request repaint after 1 second, otherwise the next song will not play until the window is interacted with
         // ctx.request_repaint_after(std::time::Duration::from_secs(1));
         if self.settings.color_shift {
-            self.update_color();
+            let dt = ctx.input().stable_dt;
+            self.update_color(dt);
             ctx.request_repaint();
         }
 
@@ -983,13 +847,14 @@ impl eframe::App for SpogApp {
         if self.song_loading.active {
             // println!("{}", self.song_loading.position);
             ctx.request_repaint();
-            if let Ok((title, artist, album, dt)) = self.song_loading.rx.try_recv() {
+            if let Ok(song_data) = self.song_loading.rx.try_recv() {
                 // println!("Main: Recieved [Title: {}, Artist: {}, Album: {}] in {}", &title, &artist, &album, self.song_loading.position);
 
-                self.track_list[self.song_loading.position].title = Rc::new(title);
-                self.track_list[self.song_loading.position].artist = Rc::new(artist);
-                self.track_list[self.song_loading.position].album = Rc::new(album);
-                self.track_list[self.song_loading.position].date = dt;
+                self.track_list[self.song_loading.position].title = Rc::new(song_data.title);
+                self.track_list[self.song_loading.position].artist = Rc::new(song_data.artist);
+                self.track_list[self.song_loading.position].album = Rc::new(song_data.album);
+                self.track_list[self.song_loading.position].date = song_data.date;
+                self.track_list[self.song_loading.position].duration = song_data.duration;
                 self.song_loading.position += 1;
             }
             if self.song_loading.position == self.track_list.len() {
@@ -1048,28 +913,6 @@ impl eframe::App for SpogApp {
     }
 }
 
-pub fn get_names_in_dir(dir_path: &str) -> Vec<String> {
-    let mut file_vec: Vec<DirEntry> = vec![];
-    
-    // First we get each file in the file directory
-    read_dir(dir_path).unwrap().for_each(|file| {
-        // println!("{}", file_vec.capacity());
-        match file {
-            Ok(n) => file_vec.push(n),
-            Err(e) => println!("oh fuck oh shit this broke it {}", e),
-        }
-    });
-
-    let mut file_paths: Vec<String> = Vec::with_capacity(file_vec.len());
-
-    // Then we get the name of each file and format it into the file's path
-    file_vec.into_iter().for_each(|file| {
-        file_paths.push(file.file_name().into_string().unwrap())
-        
-    });
-    return file_paths;
-}
-
 // Returns an index for the next song based on QueueMode
 // maybe move to impl SpogApp, but would need another fn for queueing future songs
 #[inline(always)]
@@ -1099,10 +942,10 @@ pub fn get_next_track(index: usize, num_songs: usize) -> usize {
 }
 
 // Read metadata and assign file type/extension
-pub fn read_metadata(file_path: &String, format: SupportedFormat) -> (String, String, String, OffsetDateTime) {
+pub fn read_metadata(file_path: &String, format: SupportedFormat) -> SongData {
     // First, need extension so we try to read the correct encoding
     // THIS IS GOING TO BE LESS HORRIFYING SOON I'M JUST NOT GREAT WITH ERROR HANDLING OKAY
-    let dt = if let Ok(meta) = std::fs::metadata(file_path) {
+    let date = if let Ok(meta) = std::fs::metadata(file_path) {
         if let Ok(std_time) =meta.modified() {
             if let Ok(diff) = std_time.elapsed() {
                 if let Ok(time_dur) = time::Duration::try_from(diff) {
@@ -1116,18 +959,49 @@ pub fn read_metadata(file_path: &String, format: SupportedFormat) -> (String, St
         } else {OffsetDateTime::UNIX_EPOCH}
     } else {OffsetDateTime::UNIX_EPOCH};
 
+    if let Ok(tagged_file) = lofty::read_from_path(file_path) {
+        let duration = tagged_file.properties().duration();
+        if let Some(meta) = tagged_file.primary_tag() {
+            let title = match meta.title() {
+                Some(title) => title.to_string(),
+                None => "".to_string(),
+            };
 
-    match format {
-        SupportedFormat::mp3 => {
-            read_mp3(file_path, dt)
-        },
-        SupportedFormat::m4a => {
-            read_m4a(file_path, dt)
-        },
-        _ => {
-            ("".to_string(),"".to_string(),"".to_string(), OffsetDateTime::UNIX_EPOCH)
+            let artist = match meta.artist() {
+                Some(artist) => artist.to_string(),
+                None => "".to_string(),
+            };
+
+            let album = match meta.album() {
+                Some(album) => album.to_string(),
+                None => "".to_string(),
+            };
+
+            SongData {
+                title,
+                artist,
+                album,
+                date,
+                duration: Some(duration)
+            }
+        } else {
+            SongData::from_duration(duration)
         }
+    } else {
+        SongData::default()
     }
+
+    // match format {
+    //     SupportedFormat::mp3 => {
+    //         read_mp3(file_path, dt)
+    //     },
+    //     SupportedFormat::m4a => {
+    //         read_m4a(file_path, dt)
+    //     },
+    //     _ => {
+    //         ("".to_string(),"".to_string(),"".to_string(), OffsetDateTime::UNIX_EPOCH)
+    //     }
+    // }
 }
 
 // fn get_modified(file_path: &str) -> Result<(), dyn Error> {

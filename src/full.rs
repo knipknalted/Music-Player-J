@@ -1,9 +1,9 @@
 use crate::spogify::{SpogApp, Column, Sorting};
 use crate::controls::{settings_button,render_search_bar,show_current_song,shuffle_button,prev,play_pause,next,loop_button,
-    volume_slider,button_decals, mode_button, LIGHT_GREY, SLIDER_BACKGROUND, WHITE, BLACK, FERN};
+    volume_slider,button_decals, mode_button, progress_bar};
+use crate::{LIGHT_GREY, SLIDER_BACKGROUND, WHITE, BLACK, FERN};
 use egui::{vec2, Pos2};
 use std::f32::consts::FRAC_PI_6;
-
 const SPACING: f32 = 10.0;
 const BUTTON_SIDE: f32 = 40.0;
 
@@ -14,6 +14,9 @@ pub fn full_layout(ctx: &egui::Context, app: &mut SpogApp, frame: &mut eframe::F
         let bigmode_nw = settings_nw - vec2(BUTTON_SIDE+SPACING, 0.0);
         let loading_nw = bigmode_nw - vec2(1.5*BUTTON_SIDE+SPACING, -5.0);
         loading_bar(ui, app, loading_nw);
+
+        // let progress_nw = ui.max_rect().left_top() + vec2(480.0, 15.0);
+        // progress_bar(ui, app, progress_nw);
         
         settings_button(ui, app, settings_nw);
         mode_button(ui, app, bigmode_nw, frame);
@@ -38,7 +41,7 @@ pub fn full_layout(ctx: &egui::Context, app: &mut SpogApp, frame: &mut eframe::F
                 (ui.max_rect().right_center() - vec2(SPACING+width, 10.0), width)
             };
             
-            egui::Rect::from_min_size(volume_nw, vec2(width, 20.0))
+            egui::Rect::from_min_size(volume_nw - vec2(0.0, 20.0), vec2(width, 20.0))
         };        
         
         let song_rect = {

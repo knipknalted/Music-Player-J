@@ -1,16 +1,13 @@
 use std::{path::Path, process::Command, time::Duration};
 
 use egui::{pos2, vec2, Color32, FontId};
+use rodio::DeviceTrait;
 
-use crate::spogify::{SpogApp, QueueMode, singleline_galley, Song, init_dir, split_artists, SliderMode};
+use crate::spogify::{SpogApp, QueueMode, split_artists, SliderMode};
+use crate::song::{Song, singleline_galley, init_dir,};
+use crate::{WHITE, LIGHT_GREY, SLIDER_BACKGROUND, BLACK};
 
-pub const WHITE: Color32 = Color32::WHITE;
-pub const BLACK: Color32 = Color32::BLACK;
-pub const LIGHT_GREY: Color32 = Color32::from_rgb(167, 167, 167);
-pub const _BACKGROUND: Color32 = Color32::from_rgb(27, 27, 27);
-pub const SLIDER_BACKGROUND: Color32 = Color32::from_rgb(60, 60, 60);
-pub const FERN: Color32 = Color32::from_rgb(104, 185, 115);
-pub const _CUSTOM_BLUE: Color32 = Color32::from_rgb(132,150,255);
+
 pub const SPACING: f32 = 35.0;
 pub const BUTTON_SIDE: f32 = 40.0;
 
@@ -288,6 +285,23 @@ pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, frame: &mut efram
                 }
             }
 
+            ui.collapsing("Output Device", |ui| {
+                ui.label(format!("Currently using {}", app.devices[app.settings.device_index].name().unwrap()));
+                for i in 0..app.devices.len() {
+                    if ui.button(app.devices[i].name().unwrap()).clicked() {
+                        // Copied from app.set_stream()
+                        app.on = false;
+                        (app.stream, app.stream_handle) = rodio::OutputStream::try_from_device(&app.devices[i]).unwrap();
+                        // app.set_sink();
+
+                        // Copied from app.set_sink()
+                        app.sink = std::sync::Arc::new(rodio::Sink::try_new(&app.stream_handle).unwrap());
+                        app.sink.set_volume(app.volume);
+                        app.sink.set_speed(app.playback.speed)
+                    }
+                }
+            });
+
             ui.horizontal(|ui| {
                 ui.label("Cache directory:");
                 let text = if app.settings.cache_dir {
@@ -310,7 +324,6 @@ pub fn settings_window(app: &mut SpogApp, ctx: &egui::Context, frame: &mut efram
                                 app.current_index = 0;
                                 // Request to refresh the app's track_list
                                 app.song_loading.request = true;
-
                             } else {
                                 ui.memory().open_popup(directory_error);
                             }
@@ -417,72 +430,37 @@ pub fn play_pause(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) -> 
     // Making space for it
     let mut response = ui.allocate_rect(rect, egui::Sense::click());
 
-    //
-    // let sink = app.sink.clone();
-    // let volume = app.volume.clone();
-    
-    // if app.on {
-    //     std::thread::spawn(move || {
-    //         let mut num = 1.0;
-    //         while num > 0.0 {
-    //             println!("{num}");
-    //             std::thread::sleep(Duration::from_millis(10));
-    //             num -= 0.05;
-    //             sink.set_volume(volume*num);
-    //         }
-    //         sink.pause();
-    //     });   
-    // } else {
-    //     std::thread::spawn(move || {
-    //         sink.play();
-    //         let mut num = 0.0;
-    //         while num < 1.0 {
-    //             println!("{num}");
-    //             std::thread::sleep(Duration::from_millis(10));
-    //             num += 0.05;
-    //             sink.set_volume(volume*num);
-    //         }
-    //     });
-    // }
-    // app.on = !app.on;
-    //
-
     // Noting if it's been clicked
     if response.clicked() {
-        
-        let sink = app.sink.clone();
-        let volume = app.volume.clone();
-        
         response.mark_changed();
+
         if app.on {
-            std::thread::spawn(move || {
-                let mut num = 1.0;
-                while num > 0.0 {
-                    println!("{num}");
-                    std::thread::sleep(Duration::from_millis(10));
-                    num -= 0.05;
-                    sink.set_volume(volume*num);
-                }
-                sink.pause();
-            });
-            
+            // std::thread::spawn(move || {
+            //     let mut num = 1.0;
+            //     while num > 0.0 {
+            //         // println!("{num}");
+            //         std::thread::sleep(Duration::from_millis(10));
+            //         num -= 0.05;
+            //         sink.set_volume(volume*num);
+            //     }
+            //     sink.pause();
+            // });
 
+            app.pause();
             println!("Now playing music");
-            // app.sink.play();
         } else {
-            std::thread::spawn(move || {
-                sink.play();
-                let mut num = 0.0;
-                while num < 1.0 {
-                    println!("{num}");
-                    std::thread::sleep(Duration::from_millis(10));
-                    num += 0.05;
-                    sink.set_volume(volume*num);
-                }
-            });
+            // std::thread::spawn(move || {
+            //     sink.play();
+            //     let mut num = 0.0;
+            //     while num < 1.0 {
+            //         // println!("{num}");
+            //         std::thread::sleep(Duration::from_millis(10));
+            //         num += 0.05;
+            //         sink.set_volume(volume*num);
+            //     }
+            // });
 
-           
-
+            app.play();
             // app.sink.pause();
             println!("Music paused")
         }
@@ -609,10 +587,7 @@ pub fn button_decals(mode: &mut QueueMode, ui: &mut egui::Ui, shuffle_nw: egui::
 
 pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min: f32, max: f32) {
     // Slider bar rect defined externally for better control laying out many custom widgets
-    // let center_x = match app.settings.volume_mode {
-    //     SliderMode::Linear => val_to_pos(app.volume, bar.left(), min, max, bar.width()),
-    //     SliderMode::Exponential => exp_v_to_p(app.volume, bar.left(), min, max, bar.width()),
-    // };
+    
     let center_x = value_to_pos(app.volume, bar.left(), min, max, bar.width(), app.settings.volume_mode);
 
     let center = pos2(center_x, bar.center().y);
@@ -622,10 +597,6 @@ pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min
     let bar_response = ui.allocate_rect(bar.expand(6.0), egui::Sense {click: true, drag: true, focusable: true});
     if bar_response.is_pointer_button_down_on() {
         let new_pos = bar_response.interact_pointer_pos().unwrap().x;
-        // match app.settings.volume_mode {
-        //     SliderMode::Linear => app.volume = pos_to_val(new_pos, bar.left(), min, max, bar.width()).clamp(min, max),
-        //     SliderMode::Exponential => app.volume = exp_p_to_v(new_pos, bar.left(), min, max, bar.width()),
-        // }
         app.volume = pos_to_value(new_pos, bar.left(), min, max, bar.width(), app.settings.volume_mode);
         app.sink.set_volume(app.volume);
     }
@@ -635,11 +606,6 @@ pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min
         // To save some calculations, don't do if there is no scroll/nothing to change
         if delta != 0.0 {
             let new_pos = knob.center().x + 0.2*delta;
-            // match app.settings.volume_mode {
-            //     SliderMode::Linear => app.volume = pos_to_val(new_pos, bar.left(), min, max, bar.width()).clamp(min, max),
-            //     SliderMode::Exponential => app.volume = exp_p_to_v(new_pos, bar.left(), min, max, bar.width()),
-            // }
-            
             app.volume = pos_to_value(new_pos, bar.left(), min, max, bar.width(), app.settings.volume_mode);
             if !app.settings.muted {
                 app.sink.set_volume(app.volume);
@@ -651,15 +617,13 @@ pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min
     // Or some way that if pointer is not in bar rect, use it's position
     // This way, dragging it far off the bar to the right, and then slightly to the left, but still outside bar, will not move knob
     if knob_response.dragged() {
-        let delta = knob_response.drag_delta().x;
-        // let new_pos = val_to_pos(app.volume, bar.left(), min, max, bar.width()) + delta;
+        let delta = if ui.rect_contains_pointer(bar_response.rect.expand2(vec2(0.0, 100.0))) {
+            knob_response.drag_delta().x
+        } else {
+            0.0
+        };
         let new_pos = knob.center().x + delta;
-        // app.volume = match app.settings.volume_mode {
-        //     SliderMode::Exponential => exp_p_to_v(new_pos, bar.left(), min, max, bar.width()),
-        //     SliderMode::Linear => pos_to_val(new_pos, bar.left(), min, max, bar.width()).clamp(min, max),
-        // };
         app.volume = pos_to_value(new_pos, bar.left(), min, max, bar.width(), app.settings.volume_mode);
-        // app.volume = pos_to_val(new_pos, bar.left(), min, max, bar.width()).clamp(min, max);
         if !app.settings.muted {
             app.sink.set_volume(app.volume);
         }
@@ -689,7 +653,37 @@ pub fn volume_slider( ui: &mut egui::Ui, app: &mut SpogApp, bar: egui::Rect, min
         let mask = egui::Color32::from_white_alpha(11);
         ui.painter().rect_filled(speaker_rect, egui::Rounding::none(), mask);
     }
-
+ 
+    if !app.settings.mini_mode {
+        let text = match app.settings.volume_mode {
+            SliderMode::Linear => "Linear".to_string(),
+            SliderMode::Exponential => "Exponential".to_string(),
+        };
+    
+        let mode_gal = ui.painter().layout_no_wrap(text, egui::FontId::proportional(22.0), LIGHT_GREY);
+        
+        let mode_nw = bar.center_bottom() + vec2(-0.6*mode_gal.rect.width(), 16.0);
+        let mode = egui::Rect::from_min_size(mode_nw, vec2(1.6*mode_gal.rect.width(), 24.0));
+        let mode_response = ui.allocate_rect(mode, egui::Sense::click());
+    
+        if mode_response.clicked() {
+            match app.settings.volume_mode {
+                SliderMode::Linear => app.settings.volume_mode = SliderMode::Exponential,
+                SliderMode::Exponential => app.settings.volume_mode = SliderMode::Linear
+            }
+        }
+    
+        if ui.is_rect_visible(mode) {
+            let mut visuals = ui.style().interact_selectable(&mode_response, true);
+            visuals.fg_stroke.width = 1.5;
+    
+            let mode = mode.expand(visuals.expansion);
+    
+            ui.painter().rect(mode, 25.0, SLIDER_BACKGROUND, egui::Stroke::new(1.5, LIGHT_GREY));
+            ui.painter().galley(mode.center() -vec2(0.5*mode_gal.rect.width(), 0.5*mode_gal.rect.height()), mode_gal);
+        }
+    }
+    
     if speaker_response.clicked() {
         // Switch value of muted
         app.settings.muted = !app.settings.muted;
@@ -786,21 +780,8 @@ pub fn show_current_song(ui: &mut egui::Ui, app: &mut SpogApp, rect: egui::Rect)
             }
         }
     }
-    let response = ui.allocate_rect(rect, egui::Sense::click());
-    response.context_menu(|ui| {
-        ui.label(format!("Format: {}", app.track_list[app.current_index].format));
-        if ui.button("Queue Song").clicked() {
-            app.queued_song = Some(app.current_index);
-        }
-        if ui.button("favorite").clicked() {
-            if app.settings.favorites.contains(&app.current_index) {
-                let index = app.settings.favorites.iter().position(|index| *index == app.current_index).unwrap();
-                app.settings.favorites.swap_remove(index);
-            } else {
-                app.settings.favorites.push(app.current_index);
-            }
-        }
-    });
+    // let response = ui.allocate_rect(rect, egui::Sense::click());
+    
     let response = ui.allocate_rect(rect, egui::Sense::click());
     if response.is_pointer_button_down_on() {
         let shade = egui::Color32::from_black_alpha(60);
@@ -869,12 +850,12 @@ pub fn mode_button(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2, fr
 }
 
 // Width of text in search bar, 
-pub fn width_from_str(text: &String, fonts: &egui::text::Fonts) -> f32 {
+pub fn width_from_str(text: &String, fonts: &egui::text::Fonts, size: f32) -> f32 {
     let mut width = 0.0;
     for char in text.as_str().chars() {
         width += egui::text::Fonts::glyph_width(
             fonts,
-            &egui::FontId::proportional(28.0), 
+            &egui::FontId::proportional(size), 
             char
         );
     }
@@ -884,7 +865,20 @@ pub fn width_from_str(text: &String, fonts: &egui::text::Fonts) -> f32 {
 pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
     let top_left = ui.max_rect().left_top() + vec2(10.0, 5.0);
     let bot_right = top_left + vec2(400.0, 40.0);
-    let bar = egui::Rect::from_two_pos(top_left, bot_right);  
+    let bar = egui::Rect::from_two_pos(top_left, bot_right);
+
+    // ui.allocate_ui_at_rect(egui::Rect::from_min_size(bar.right_top(), vec2(100.0, 40.0)), |ui| {
+    //     let j = match app.filter.selected_j {
+    //         Some(u) => u.to_string(),
+    //         None => "None".to_string(),
+    //     };
+    //     ui.label(j);
+    //     let i = match app.filter.track_i {
+    //         Some(i) => i.to_string(),
+    //         None => "None".to_string(),
+    //     };
+    //     ui.label(i);
+    // });
 
     let magnifying_pos = bar.left_center() + vec2(10.0, 0.0);
 
@@ -916,6 +910,7 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
 
     // let size_offset = vec2(45.0-size_shift, 0.0);
 
+    // The position used to horizontally offset the search bar text
     let text_pos = viewport.left_center()-vec2(size_shift, 0.0);
 
     let caret_shift = {
@@ -939,7 +934,7 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
                 // let width = width_from_str(t, &app.filter.fonts);
                 // app.filter_data.text_width += width;
                 app.filter.field.insert_str(app.filter.position, t.as_str());
-                app.filter.text_width = width_from_str(&app.filter.field, &app.filter.fonts);
+                app.filter.text_width = width_from_str(&app.filter.field, &app.filter.fonts, 28.0);
                 app.filter.position += 1;
                 app.filter.blink_timer = std::time::SystemTime::now();
             }
@@ -969,7 +964,7 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
                         if app.filter.position != 0 {
                             app.filter.field.remove(app.filter.position-1);
                             // app.filter_data.text_width -= width_from_str(&char, &app.filter_data.fonts);
-                            app.filter.text_width = width_from_str(&app.filter.field, &app.filter.fonts);
+                            app.filter.text_width = width_from_str(&app.filter.field, &app.filter.fonts, 28.0);
                             app.filter.position -= 1;
                         }
                     },
@@ -989,7 +984,10 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
                     egui::Key::ArrowUp => {
                         if app.filter.selected_j.is_some() {
                             match app.filter.selected_j.unwrap() {
-                                0 => app.filter.selected_j = None,
+                                0 => {
+                                    app.filter.selected_j = None;
+                                    app.filter.track_i = None;
+                                },
                                 _ => app.filter.selected_j = Some(app.filter.selected_j.unwrap() - 1),
                             }
                         }
@@ -1078,7 +1076,7 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
         );
     }
     if app.filter.active {
-        let _test = ui.painter().with_clip_rect(viewport).text(
+        let test = ui.painter().with_clip_rect(viewport).text(
             text_pos, 
             egui::Align2::LEFT_CENTER, 
             app.filter.field.clone(), 
@@ -1086,8 +1084,13 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
             BLACK
         );
 
-        let caret_n = viewport.left_top()+vec2(caret_x, 4.0);
-        let caret_s = viewport.left_bottom()+vec2(caret_x, -4.0);
+        // println!("Text: {}, Cached Width: {}, Viewport: {}, Size Shift: {}", test.width(), app.filter.text_width, viewport.right()-viewport.left(), size_shift);
+        println!("Text: {}, Cached Width: {}, Diff: {}", test.width(), app.filter.text_width, test.width()-app.filter.text_width);
+        let caret_n = viewport.left_top() + vec2(caret_x, 4.0);
+        let caret_s = viewport.left_bottom() + vec2(caret_x, -4.0);
+
+        // let caret_n = text_pos + vec2(caret_x-0.5*text_pos.x, -13.0);
+        // let caret_s = text_pos + vec2(caret_x-0.5*text_pos.x, 13.0);
         // println!("Caret: {}, Text: {}" caret_n.x, );
 
         // The blinking caret
@@ -1118,5 +1121,21 @@ pub fn render_search_bar(ui: &mut egui::Ui, app: &mut SpogApp) {
             egui::FontId::proportional(28.0), 
             LIGHT_GREY
         );
+    }
+}
+
+pub fn progress_bar(ui: &mut egui::Ui, app: &mut SpogApp, rect_nw: egui::Pos2) {
+    let slider_len = 300.0;
+
+    let full_bar = egui::Rect::from_min_size(rect_nw, vec2(slider_len, 20.0));
+    ui.painter().rect_filled(full_bar, egui::Rounding::same(10.0), SLIDER_BACKGROUND);
+
+    if let Some(duration) = app.track_list[app.current_index].duration {
+        println!("hi");
+        let millis = duration.as_millis();
+        let length = slider_len * (app.playback.elapsed_time as f32/millis as f32);
+
+        let elapsed_bar = egui::Rect::from_min_size(rect_nw, vec2(length, 20.0));
+        ui.painter().rect_filled(elapsed_bar, egui::Rounding::same(10.0), WHITE);
     }
 }
